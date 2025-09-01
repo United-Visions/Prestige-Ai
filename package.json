@@ -1,6 +1,6 @@
 {
   "name": "prestige-ai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A simplified Claude Code CLI integration inspired by CCdyad",
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -48,6 +48,7 @@
     "cmdk": "^1.1.1",
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.44.5",
+    "electron-updater": "^6.6.2",
     "lucide-react": "^0.400.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -99,6 +100,11 @@
         ]
       }
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "United-Visions",
+      "repo": "Prestige-Ai"
+    },
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [

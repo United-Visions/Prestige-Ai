@@ -10,8 +10,23 @@ lerna-debug.log*
 dist/
 dist-electron/
 build/
-release/
 out/
+
+# Release folder - include folder but exclude large build files
+# release/ folder itself should be tracked for auto-update system
+release/*.dmg
+release/*.exe
+release/*.zip
+release/*.tar.gz
+release/*.deb
+release/*.rpm
+release/*.AppImage
+release/*.blockmap
+release/mac/
+release/mac-arm64/
+release/win-ia32-unpacked/
+release/win-unpacked/
+release/linux-unpacked/
 
 # Web app (don't expose website)
 prestige-ai_web/
@@ -124,16 +139,16 @@ public
 tmp/
 temp/
 
-# Electron specific
-*.app
-*.dmg
-*.exe
-*.deb
-*.rpm
-*.AppImage
-*.zip
-*.tar.gz
-*.blockmap
+# Electron specific - handled in release/ section above
+# *.app
+# *.dmg
+# *.exe
+# *.deb
+# *.rpm
+# *.AppImage
+# *.zip
+# *.tar.gz
+# *.blockmap
 
 # SQLite databases
 *.db

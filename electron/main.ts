@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { spawn, ChildProcess } from 'child_process'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { join, resolve } from 'path'
@@ -62,6 +63,47 @@ const createWindow = (): void => {
 
 app.whenReady().then(() => {
   createWindow()
+
+  // Auto-updater configuration
+  if (!app.isPackaged) {
+    console.log('Development mode: Auto-updater disabled')
+  } else {
+    // Auto-updater event handlers
+    autoUpdater.on('checking-for-update', () => {
+      console.log('Checking for update...')
+    })
+
+    autoUpdater.on('update-available', (info) => {
+      console.log('Update available:', info)
+    })
+
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('Update not available:', info)
+    })
+
+    autoUpdater.on('error', (err) => {
+      console.log('Error in auto-updater:', err)
+    })
+
+    autoUpdater.on('download-progress', (progressObj) => {
+      console.log(`Download speed: ${progressObj.bytesPerSecond}`)
+      console.log(`Downloaded ${progressObj.percent}%`)
+    })
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log('Update downloaded:', info)
+      // You could show a notification to the user here
+      autoUpdater.quitAndInstall()
+    })
+
+    // Check for updates on app start
+    autoUpdater.checkForUpdatesAndNotify()
+    
+    // Check for updates every hour
+    setInterval(() => {
+      autoUpdater.checkForUpdatesAndNotify()
+    }, 60 * 60 * 1000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
