@@ -1,5 +1,5 @@
 import useAppStore from '@/stores/appStore';
-// import { useAIStore } from '@/store/aiStore';
+import { useAIStore } from '@/store/aiStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, Trash2, MessageSquare, ArrowLeft, Play } from 'lucide-react';
@@ -16,10 +16,10 @@ export function AppSidebar() {
     createConversation 
   } = useAppStore();
 
-  // const {
-  //   setPreviewApp,
-  //   setPreviewVisible
-  // } = useAIStore();
+  const {
+    setPreviewApp,
+    setPreviewVisible
+  } = useAIStore();
 
   const { showPreviewMode } = useCodeViewerStore();
 
@@ -39,7 +39,8 @@ export function AppSidebar() {
   };
 
   const handlePreviewApp = (app: any) => {
-    setCurrentApp(app);
+    setPreviewApp(app);
+    setPreviewVisible(true);
     showPreviewMode();
   };
 

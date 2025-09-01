@@ -22,17 +22,33 @@ export async function startProxy(
 
   // Use the worker from the worker directory
   // In development: __dirname might be /electron/utils
-  // In production: __dirname might be /dist-electron/utils  
-  let workerPath = path.resolve(__dirname, "..", "..", "worker", "proxy_server.cjs");
+  // In production: __dirname might be /dist-electron/utils or in app.asar
+  let workerPath: string;
   
-  // Fallback: try relative to the electron directory
-  if (!fs.existsSync(workerPath)) {
-    workerPath = path.resolve(__dirname, "..", "worker", "proxy_server.cjs");
-  }
+  // Check if we're in production (bundled in app.asar)
+  const isProduction = __dirname.includes('app.asar') || __dirname.includes('dist-electron');
   
-  // Final fallback: try from the current working directory
-  if (!fs.existsSync(workerPath)) {
-    workerPath = path.resolve(process.cwd(), "worker", "proxy_server.cjs");
+  if (isProduction) {
+    // In production, worker should be in Resources folder
+    const appPath = process.cwd();
+    const possiblePaths = [
+      path.join(appPath, 'worker', 'proxy_server.cjs'),
+      path.join(path.dirname(process.execPath), 'worker', 'proxy_server.cjs'),
+      path.resolve(process.resourcesPath!, 'worker', 'proxy_server.cjs'),
+      path.resolve(__dirname, "..", "..", "worker", "proxy_server.cjs"),
+      path.resolve(__dirname, "..", "worker", "proxy_server.cjs"),
+    ];
+    
+    workerPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+  } else {
+    // Development paths
+    const possiblePaths = [
+      path.resolve(__dirname, "..", "..", "worker", "proxy_server.cjs"),
+      path.resolve(__dirname, "..", "worker", "proxy_server.cjs"),
+      path.resolve(process.cwd(), "worker", "proxy_server.cjs"),
+    ];
+    
+    workerPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
   }
   
   if (!fs.existsSync(workerPath)) {

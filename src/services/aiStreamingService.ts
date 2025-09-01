@@ -7,6 +7,7 @@ import { useStreamingErrorDetection } from '../hooks/useRealTimeErrorDetection';
 export class AIStreamingService {
   private static instance: AIStreamingService;
   private activeStreams: Map<string, AbortController> = new Map();
+  // Reserved for future streaming callbacks implementation
   // private streamingCallbacks: Map<string, Function[]> = new Map();
 
   public static getInstance(): AIStreamingService {

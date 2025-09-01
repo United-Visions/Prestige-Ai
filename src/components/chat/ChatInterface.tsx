@@ -358,9 +358,11 @@ export function ChatInterface() {
   };
 
   const handlePreviewApp = () => {
-    // The app should already be selected when this is called from the header,
-    // but ensure consistency
-    showPreviewMode();
+    if (currentApp) {
+      // The app should already be selected when this is called from the header,
+      // but ensure consistency
+      showPreviewMode();
+    }
   };
 
   const quickPrompts = [

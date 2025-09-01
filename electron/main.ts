@@ -5,18 +5,41 @@ import { writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync
 import { join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { eq, desc } from 'drizzle-orm';
-import fs from 'fs-extra';
+import fs from 'fs';
 import { initializeDatabase, closeDatabase } from './db';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
  
+// Add error handling to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit the app, just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception thrown:', error);
+  // Don't exit the app, just log the error
+});
+
 // Enable live reload for development
 if (process.env.NODE_ENV === 'development') {
   try {
     require('electron-reload')(__dirname, {
       electron: require(`${__dirname}/../node_modules/electron/dist/electron`),
-      hardResetMethod: 'exit'
+      hardResetMethod: 'restart',  // Use restart instead of exit to prevent crashes
+      ignored: [
+        /node_modules/,
+        /[\/\\]\./,
+        /\.git/,
+        /builds/,
+        /dist/,
+        /\.log$/,
+        /\.sqlite$/,
+        /\.db$/,
+        // Ignore files that might change during app rebuild to prevent restart loops
+        /prestige-ai\/.*\/files/  // Ignore changes in scaffolded app files
+      ]
     });
   } catch (error) {
     console.log('electron-reload not available in development mode');
@@ -55,9 +78,19 @@ const createWindow = (): void => {
   })
 
   mainWindow.on('closed', () => {
-    // Cleanup all running apps when window is closed
-    AdvancedAppManager.getInstance().cleanup();
+    console.log('[MAIN] ===== MAIN WINDOW CLOSED EVENT =====');
+    console.log(`[MAIN] NODE_ENV: ${process.env.NODE_ENV}`);
+    // Only cleanup if we're actually closing the app, not during development restarts
+    if (process.env.NODE_ENV !== 'development') {
+      console.log('[MAIN] Production mode: triggering cleanup from window close');
+      // Cleanup all running apps when window is closed
+      AdvancedAppManager.getInstance().cleanup();
+    } else {
+      console.log('[MAIN] Development mode: skipping cleanup from window close');
+    }
+    console.log('[MAIN] Setting mainWindow to null');
     mainWindow = null
+    console.log('[MAIN] ===== MAIN WINDOW CLOSED EVENT END =====');
   })
 }
 
@@ -111,15 +144,25 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  console.log('[MAIN] ===== BEFORE QUIT EVENT =====');
+  console.log(`[MAIN] NODE_ENV: ${process.env.NODE_ENV}`);
+  console.log('[MAIN] Triggering cleanup from before-quit event');
   // Cleanup advanced app manager
   AdvancedAppManager.getInstance().cleanup();
+  console.log('[MAIN] ===== BEFORE QUIT EVENT END =====');
 });
 
 app.on('window-all-closed', () => {
+  console.log('[MAIN] ===== WINDOW ALL CLOSED EVENT =====');
+  console.log(`[MAIN] Platform: ${process.platform}`);
   if (process.platform !== 'darwin') {
+    console.log('[MAIN] Non-Darwin platform: closing database and quitting app');
     closeDatabase();
     app.quit();
+  } else {
+    console.log('[MAIN] Darwin platform: keeping app alive');
   }
+  console.log('[MAIN] ===== WINDOW ALL CLOSED EVENT END =====');
 });
 
 let db: BetterSQLite3Database<typeof schema>;
@@ -128,8 +171,22 @@ try {
   console.log('Database initialized successfully.');
 } catch (error) {
   console.error('Failed to initialize database:', error);
-  // Handle initialization failure, maybe quit the app
-  app.quit();
+  // In development, don't quit the app immediately - retry initialization
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Development mode: Will retry database initialization...');
+    // Try to initialize the database again after a delay
+    setTimeout(() => {
+      try {
+        db = initializeDatabase();
+        console.log('Database initialized successfully on retry.');
+      } catch (retryError) {
+        console.error('Failed to initialize database on retry:', retryError);
+      }
+    }, 2000);
+  } else {
+    // Only quit in production if database fails
+    app.quit();
+  }
 }
 
 // IPC Handlers for Claude Code CLI integration
@@ -303,10 +360,13 @@ ipcMain.handle('db:create-conversation', async (event, conversation) => {
     return newConversation.id;
 });
 
-// Additional fs-extra handlers
+// Additional fs handlers
 ipcMain.handle('fs:ensure-file', async (event, filePath: string): Promise<void> => {
   try {
-    await fs.ensureFile(filePath);
+    const path = require('path');
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    const handle = await fs.promises.open(filePath, 'a');
+    await handle.close();
   } catch (error) {
     throw new Error(`Failed to ensure file ${filePath}: ${error}`);
   }
@@ -314,7 +374,7 @@ ipcMain.handle('fs:ensure-file', async (event, filePath: string): Promise<void> 
 
 ipcMain.handle('fs:rename', async (event, oldPath: string, newPath: string): Promise<void> => {
   try {
-    await fs.rename(oldPath, newPath);
+    await fs.promises.rename(oldPath, newPath);
   } catch (error) {
     throw new Error(`Failed to rename from ${oldPath} to ${newPath}: ${error}`);
   }
@@ -322,7 +382,7 @@ ipcMain.handle('fs:rename', async (event, oldPath: string, newPath: string): Pro
 
 ipcMain.handle('fs:remove', async (event, path: string): Promise<void> => {
   try {
-    await fs.remove(path);
+    await fs.promises.rm(path, { recursive: true, force: true });
   } catch (error) {
     throw new Error(`Failed to remove ${path}: ${error}`);
   }
@@ -330,7 +390,7 @@ ipcMain.handle('fs:remove', async (event, path: string): Promise<void> => {
 
 ipcMain.handle('fs:delete-directory', async (event, dirPath: string): Promise<void> => {
   try {
-    await fs.remove(dirPath);
+    await fs.promises.rm(dirPath, { recursive: true, force: true });
   } catch (error) {
     throw new Error(`Failed to delete directory ${dirPath}: ${error}`);
   }
@@ -338,37 +398,44 @@ ipcMain.handle('fs:delete-directory', async (event, dirPath: string): Promise<vo
 
 ipcMain.handle('fs:copy', async (event, src: string, dest: string, options?: any): Promise<void> => {
   try {
-    await fs.copy(src, dest, options);
+    await fs.promises.cp(src, dest, { recursive: true, ...options });
   } catch (error) {
     throw new Error(`Failed to copy from ${src} to ${dest}: ${error}`);
   }
 });
 
 ipcMain.handle('fs:path-exists', async (event, path: string): Promise<boolean> => {
-  return fs.pathExists(path);
+  try {
+    await fs.promises.access(path);
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 ipcMain.handle('fs:read-json', async (event, path: string): Promise<any> => {
-  return fs.readJson(path);
+  const content = await fs.promises.readFile(path, 'utf8');
+  return JSON.parse(content);
 });
 
 ipcMain.handle('fs:write-json', async (event, path: string, data: any, options?: object): Promise<void> => {
-  await fs.writeJson(path, data, options);
+  const content = JSON.stringify(data, null, options?.spaces || 2);
+  await fs.promises.writeFile(path, content, 'utf8');
 });
 
 ipcMain.handle('fs:ensure-dir', async (event, path: string): Promise<void> => {
-  await fs.ensureDir(path);
+  await fs.promises.mkdir(path, { recursive: true });
 });
 
 ipcMain.on('fs:exists-sync', (event, path: string) => {
-  event.returnValue = fs.existsSync(path);
+  event.returnValue = existsSync(path);
 });
 
 // File system operations
 ipcMain.handle('fs:read-file', async (event, filePath: string): Promise<string> => {
   const fs = require('fs').promises;
   try {
-    return await fs.readFile(filePath, 'utf8');
+    return await fs.promises.readFile(filePath, 'utf8');
   } catch (error) {
     throw new Error(`Failed to read file ${filePath}: ${error}`);
   }
@@ -380,8 +447,8 @@ ipcMain.handle('fs:write-file', async (event, filePath: string, content: string)
   
   try {
     // Ensure directory exists
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, content, 'utf8');
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, content, 'utf8');
   } catch (error) {
     throw new Error(`Failed to write file ${filePath}: ${error}`);
   }

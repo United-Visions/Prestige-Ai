@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { Worker } from 'worker_threads';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import { startProxy } from './utils/startProxyServer';
 import { request } from 'http';
 import { exec } from 'child_process';
@@ -28,6 +29,29 @@ export class AdvancedAppManager {
 
   private constructor() {
     this.setupIpcHandlers();
+  }
+
+  // Helper function to recursively remove directories (replaces fs-extra.remove)
+  private async removeDirectory(dirPath: string): Promise<void> {
+    try {
+      await fs.promises.rm(dirPath, { recursive: true, force: true });
+    } catch (error) {
+      // If rm is not available (older Node.js), use rmdir
+      try {
+        const stats = await fs.promises.stat(dirPath);
+        if (stats.isDirectory()) {
+          const entries = await fs.promises.readdir(dirPath);
+          await Promise.all(entries.map(entry => 
+            this.removeDirectory(path.join(dirPath, entry))
+          ));
+          await fs.promises.rmdir(dirPath);
+        } else {
+          await fs.promises.unlink(dirPath);
+        }
+      } catch (fallbackError) {
+        throw fallbackError;
+      }
+    }
   }
 
   public static getInstance(): AdvancedAppManager {
@@ -84,18 +108,37 @@ export class AdvancedAppManager {
 
     // Rebuild app
     ipcMain.handle('advanced-app:rebuild', async (_event, appId: number, appPath: string) => {
+      console.log(`[IPC] ===== REBUILD REQUEST RECEIVED =====`);
+      console.log(`[IPC] App ID: ${appId}`);
+      console.log(`[IPC] App Path: ${appPath}`);
       try {
-        return await this.rebuildApp(appId, appPath);
+        console.log(`[IPC] Calling rebuildApp method`);
+        const result = await this.rebuildApp(appId, appPath);
+        console.log(`[IPC] Rebuild completed successfully`);
+        console.log(`[IPC] ===== REBUILD REQUEST END =====`);
+        return result;
       } catch (error) {
-        console.error('Error rebuilding app:', error);
+        console.error('[IPC] ===== REBUILD ERROR =====');
+        console.error('[IPC] Error rebuilding app:', error);
+        console.error('[IPC] ===== REBUILD ERROR END =====');
         throw error;
       }
     });
   }
 
   private sendOutput(appId: number, output: AppOutput) {
-    if (this.mainWindow) {
-      this.mainWindow.webContents.send('advanced-app:output', appId, output);
+    console.log(`[OUTPUT] Attempting to send output for app ${appId}: ${output.message}`);
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        console.log(`[OUTPUT] Window is valid, sending output for app ${appId}`);
+        this.mainWindow.webContents.send('advanced-app:output', appId, output);
+        console.log(`[OUTPUT] Output sent successfully for app ${appId}`);
+      } catch (error) {
+        // Window was destroyed between check and send, ignore
+        console.warn(`[OUTPUT] Failed to send output for app ${appId}, window destroyed:`, error);
+      }
+    } else {
+      console.warn(`[OUTPUT] Cannot send output for app ${appId}: window is null or destroyed`);
     }
   }
 
@@ -238,18 +281,40 @@ export class AdvancedAppManager {
       : '/bin/bash';
     
     const args = os.platform() === 'win32'
-      ? ['/c', '(pnpm install && pnpm run dev --port 32100) || (npm install --legacy-peer-deps && npm run dev -- --port 32100)']
-      : ['-c', '"(pnpm install && pnpm run dev --port 32100) || (npm install --legacy-peer-deps && npm run dev -- --port 32100)"'];
+      ? ['/c', '(pnpm install && pnpm run dev --port 32100 --force) || (npm install --legacy-peer-deps && npm run dev -- --port 32100 --force)']
+      : ['-c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force'];
+
+    // Fix PATH for production - include common package manager paths
+    const fixedEnv: Record<string, string> = { ...process.env, NODE_ENV: 'development' };
+    if (os.platform() !== 'win32') {
+      // Add common Unix paths where package managers might be installed
+      const extraPaths = [
+        '/usr/local/bin',
+        '/opt/homebrew/bin', // Apple Silicon Homebrew
+        '/usr/bin',
+        '/bin',
+        `${os.homedir()}/.npm-global/bin`, // Global npm packages
+        `${os.homedir()}/.local/bin`, // User local binaries
+      ];
+      const currentPath = fixedEnv.PATH || '';
+      fixedEnv.PATH = [...extraPaths, currentPath].join(':');
+    } else {
+      // Windows: Add common paths for package managers
+      const extraPaths = [
+        'C:\\Program Files\\nodejs',
+        'C:\\Users\\AppData\\Roaming\\npm',
+        `${os.homedir()}\\AppData\\Roaming\\npm`,
+      ];
+      const currentPath = fixedEnv.PATH || '';
+      fixedEnv.PATH = [...extraPaths, currentPath].join(';');
+    }
 
     const childProcess = spawn(command, args, {
       cwd: filesPath,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
       detached: os.platform() !== 'win32', // Create a new process group on Unix systems
-      env: {
-        ...process.env,
-        NODE_ENV: 'development'
-      }
+      env: fixedEnv
     });
 
     childProcess.stdout?.on('data', (data: Buffer) => {
@@ -298,53 +363,80 @@ export class AdvancedAppManager {
   }
 
   private async stopApp(appId: number): Promise<void> {
+    console.log(`[STOP] Starting stop process for app ${appId}`);
     const runningProcess = this.runningProcesses.get(appId);
     
     if (runningProcess) {
+      console.log(`[STOP] Found running process for app ${appId}, attempting to stop`);
       try {
+        console.log(`[STOP] Sending stop message to app ${appId}`);
         this.sendOutput(appId, {
           message: `Stopping app ${appId} and cleaning up processes...`,
           type: 'stdout',
           appId,
           timestamp: Date.now()
         });
+        console.log(`[STOP] Stop message sent successfully for app ${appId}`);
 
-        // Kill all processes on port 32100 first
-        await this.killProcessOnPort(32100);
+        // Only kill processes on port 32100 if we're in production
+        // In development, killing port processes can trigger app quit events
+        if (process.env.NODE_ENV !== 'development') {
+          console.log(`[STOP] Production mode: Killing processes on port 32100 for app ${appId}`);
+          await this.killProcessOnPort(32100);
+          console.log(`[STOP] Port 32100 cleanup completed for app ${appId}`);
+        } else {
+          console.log(`[STOP] Development mode: Skipping port 32100 cleanup for app ${appId} to prevent app quit`);
+        }
 
-        // Kill the dev server process and its children
+        console.log(`[STOP] Checking if process needs to be killed for app ${appId}`);
+        // Kill the dev server process and its children - this is essential for rebuild
         if (runningProcess.process && !runningProcess.process.killed) {
+          console.log(`[STOP] Process is still running, attempting to kill for app ${appId}`);
           // Kill the entire process group to ensure child processes are terminated
           const pid = runningProcess.process.pid;
+          console.log(`[STOP] Process PID for app ${appId}: ${pid}`);
           
           if (pid) {
             try {
+              console.log(`[STOP] Killing process group for PID ${pid}`);
               // On Unix systems, kill the entire process group
               if (os.platform() !== 'win32') {
                 process.kill(-pid, 'SIGTERM');
+                console.log(`[STOP] Sent SIGTERM to process group -${pid}`);
                 
-                // Force kill after 3 seconds if still running
+                // Force kill after 2 seconds if still running (reduced from 3s)
                 setTimeout(() => {
                   try {
+                    console.log(`[STOP] Force killing process group -${pid} with SIGKILL`);
                     process.kill(-pid, 'SIGKILL');
                   } catch (e) {
-                    // Process already killed
+                    console.log(`[STOP] Process group -${pid} already terminated`);
                   }
-                }, 3000);
+                }, 2000);
               } else {
                 // On Windows, use taskkill to kill process tree
+                console.log(`[STOP] Using taskkill for Windows PID ${pid}`);
                 exec(`taskkill /F /T /PID ${pid}`, (error) => {
                   if (error) {
-                    console.warn(`Failed to kill Windows process tree: ${error}`);
+                    console.warn(`[STOP] Failed to kill Windows process tree: ${error}`);
+                  } else {
+                    console.log(`[STOP] Windows process tree killed for PID ${pid}`);
                   }
                 });
               }
             } catch (error) {
-              console.warn(`Failed to kill process group: ${error}`);
+              console.warn(`[STOP] Failed to kill process group: ${error}`);
               // Fallback to killing just the main process
-              runningProcess.process.kill('SIGKILL');
+              try {
+                console.log(`[STOP] Fallback: killing main process with SIGKILL`);
+                runningProcess.process.kill('SIGKILL');
+              } catch (fallbackError) {
+                console.warn(`[STOP] Fallback kill also failed: ${fallbackError}`);
+              }
             }
           }
+        } else {
+          console.log(`[STOP] No process to kill for app ${appId} (already dead or missing)`);
         }
 
         // Terminate proxy worker
@@ -392,11 +484,10 @@ export class AdvancedAppManager {
 
     // If requested, remove node_modules
     if (removeNodeModules) {
-      const nodeModulesPath = path.join(appPath, 'node_modules');
+      const nodeModulesPath = path.join(appPath, 'files', 'node_modules');
       
       try {
-        const fs = require('fs-extra');
-        await fs.remove(nodeModulesPath);
+        await this.removeDirectory(nodeModulesPath);
         this.sendOutput(appId, {
           message: 'Removed node_modules directory',
           type: 'stdout',
@@ -404,7 +495,12 @@ export class AdvancedAppManager {
           timestamp: Date.now()
         });
       } catch (error) {
-        console.warn('Failed to remove node_modules:', error);
+        this.sendOutput(appId, {
+          message: `Warning: Failed to remove node_modules: ${error}`,
+          type: 'stderr',
+          appId,
+          timestamp: Date.now()
+        });
       }
     }
 
@@ -469,36 +565,55 @@ export class AdvancedAppManager {
   }
 
   private async rebuildApp(appId: number, appPath: string): Promise<{ proxyUrl?: string }> {
-    // Stop current app
-    await this.stopApp(appId);
-
-    // The actual web app code is in the 'files' subdirectory
-    const filesPath = path.join(appPath, 'files');
-    const nodeModulesPath = path.join(filesPath, 'node_modules');
+    console.log(`[REBUILD] Starting rebuild for app ${appId} at path: ${appPath}`);
     
     try {
-      const fs = require('fs-extra');
-      await fs.remove(nodeModulesPath);
-      this.sendOutput(appId, {
-        message: 'Removed node_modules directory for rebuild',
-        type: 'stdout',
-        appId,
-        timestamp: Date.now()
-      });
-    } catch (error) {
-      console.warn('Failed to remove node_modules during rebuild:', error);
-      this.sendOutput(appId, {
-        message: `Warning: Failed to remove node_modules: ${error}`,
-        type: 'stderr',
-        appId,
-        timestamp: Date.now()
-      });
-    }
+      console.log(`[REBUILD] Step 1: Stopping current app ${appId}`);
+      await this.stopApp(appId);
+      console.log(`[REBUILD] Step 1 completed: App ${appId} stopped successfully`);
 
-    // Wait a moment then restart
-    await new Promise(resolve => setTimeout(resolve, 1000));
+      // The actual web app code is in the 'files' subdirectory
+      const filesPath = path.join(appPath, 'files');
+      const nodeModulesPath = path.join(filesPath, 'node_modules');
+      console.log(`[REBUILD] Step 2: Targeting files path: ${filesPath}`);
+      console.log(`[REBUILD] Step 2: Node modules path: ${nodeModulesPath}`);
     
-    return await this.runApp(appId, appPath);
+      console.log(`[REBUILD] Step 3: Attempting to remove node_modules directory`);
+      try {
+        await this.removeDirectory(nodeModulesPath);
+        console.log(`[REBUILD] Step 3 completed: node_modules removed successfully`);
+        this.sendOutput(appId, {
+          message: 'Removed node_modules directory for rebuild',
+          type: 'stdout',
+          appId,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.warn(`[REBUILD] Step 3 warning: Failed to remove node_modules:`, error);
+        this.sendOutput(appId, {
+          message: `Warning: Failed to remove node_modules: ${error}`,
+          type: 'stderr',
+          appId,
+          timestamp: Date.now()
+        });
+      }
+
+      console.log(`[REBUILD] Step 4: Waiting 3 seconds to ensure process termination and file system sync`);
+      // Wait longer to ensure:
+      // 1. Process is fully terminated
+      // 2. File system operations complete  
+      // 3. Vite cache is cleared
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      console.log(`[REBUILD] Step 5: Starting app ${appId} again`);
+      const result = await this.runApp(appId, appPath);
+      console.log(`[REBUILD] Step 5 completed: App ${appId} restarted successfully`);
+      console.log(`[REBUILD] Rebuild process completed successfully for app ${appId}`);
+      return result;
+    } catch (rebuildError) {
+      console.error(`[REBUILD] FATAL ERROR during rebuild of app ${appId}:`, rebuildError);
+      throw rebuildError;
+    }
   }
 
   isAppRunning(appId: number): boolean {
@@ -511,17 +626,31 @@ export class AdvancedAppManager {
 
   // Cleanup on app exit
   cleanup() {
-    console.log('Cleaning up all running processes...');
+    console.log('[CLEANUP] ===== CLEANUP PROCESS STARTED =====');
+    console.log(`[CLEANUP] NODE_ENV: ${process.env.NODE_ENV}`);
+    console.log(`[CLEANUP] Number of running processes: ${this.runningProcesses.size}`);
+    console.log(`[CLEANUP] Running app IDs: ${Array.from(this.runningProcesses.keys()).join(', ')}`);
     
-    // Stop all running apps
-    const stopPromises = Array.from(this.runningProcesses.keys()).map(appId => 
-      this.stopApp(appId).catch(console.error)
-    );
+    // Stop all running apps gracefully
+    const stopPromises = Array.from(this.runningProcesses.keys()).map(appId => {
+      console.log(`[CLEANUP] Starting cleanup for app ${appId}`);
+      return this.stopApp(appId).catch(error => {
+        console.error(`[CLEANUP] Failed to stop app ${appId}:`, error);
+      });
+    });
     
-    // Also kill any remaining processes on port 32100
-    this.killProcessOnPort(32100).catch(console.error);
+    // Only kill processes on port 32100 if we're actually shutting down
+    // In development, let the processes continue running to avoid disrupting the dev experience
+    if (process.env.NODE_ENV !== 'development') {
+      console.log('[CLEANUP] Production mode: killing processes on port 32100');
+      this.killProcessOnPort(32100).catch(console.error);
+    } else {
+      console.log('[CLEANUP] Development mode: skipping port 32100 cleanup');
+    }
     
+    console.log('[CLEANUP] Clearing processes map');
     // Clear the processes map
     this.runningProcesses.clear();
+    console.log('[CLEANUP] ===== CLEANUP PROCESS COMPLETED =====');
   }
 }
