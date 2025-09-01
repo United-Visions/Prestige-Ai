@@ -14,6 +14,12 @@
     "build:win": "tsc && vite build && electron-builder --win",
     "build:linux": "tsc && vite build && electron-builder --linux",
     "build:all": "tsc && vite build && electron-builder --mac --win --linux",
+    "build:versioned": "node scripts/organize-builds.js --structure-only && npm run build:all && node scripts/organize-builds.js",
+    "build:mac:versioned": "node scripts/organize-builds.js --structure-only && npm run build:mac && node scripts/organize-builds.js",
+    "build:win:versioned": "node scripts/organize-builds.js --structure-only && npm run build:win && node scripts/organize-builds.js",
+    "build:linux:versioned": "node scripts/organize-builds.js --structure-only && npm run build:linux && node scripts/organize-builds.js",
+    "build:clean": "node scripts/organize-builds.js --clean",
+    "build:organize": "node scripts/organize-builds.js",
     "package:mac": "npm run build:mac",
     "package:win": "npm run build:win",
     "package:all": "npm run build:all",
@@ -85,7 +91,7 @@
     "appId": "com.prestige-ai.app",
     "productName": "Prestige-AI",
     "directories": {
-      "output": "release"
+      "output": "builds/v${version}"
     },
     "files": [
       "dist/**/*",

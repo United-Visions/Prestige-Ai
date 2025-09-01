@@ -28,6 +28,22 @@ release/win-ia32-unpacked/
 release/win-unpacked/
 release/linux-unpacked/
 
+# New organized builds structure
+builds/
+!builds/.gitkeep
+!builds/*/
+!builds/*/.gitkeep
+!builds/*/build-summary.md
+# Exclude all build files but keep structure
+builds/**/*.dmg
+builds/**/*.exe  
+builds/**/*.zip
+builds/**/*.tar.gz
+builds/**/*.deb
+builds/**/*.rpm
+builds/**/*.AppImage
+builds/**/*.blockmap
+
 # Web app (don't expose website)
 prestige-ai_web/
 
