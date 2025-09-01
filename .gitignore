@@ -16,6 +16,10 @@ out/
 # Web app (don't expose website)
 prestige-ai_web/
 
+# Generated apps and download site (don't expose)
+apps/
+download-site/
+
 # Environment variables and secrets
 .env
 .env.*
