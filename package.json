@@ -1,6 +1,6 @@
 {
   "name": "prestige-ai",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "A simplified Claude Code CLI integration inspired by CCdyad",
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -109,6 +109,13 @@
       {
         "from": "worker/",
         "to": "worker/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scaffold/",
+        "to": "scaffold/",
         "filter": [
           "**/*"
         ]

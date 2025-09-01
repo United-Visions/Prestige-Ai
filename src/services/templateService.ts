@@ -43,9 +43,18 @@ export class TemplateService {
 
   private async createFromLocalScaffold(appPath: string): Promise<void> {
     // Use direct scaffold copying like CCdyad does
-    // Get the app directory and build path to scaffold
-    const appCwd = await app.getCwd();
-    const scaffoldPath = await path.join(appCwd, "scaffold");
+    // Handle both development and production paths
+    let scaffoldPath: string;
+    
+    // Check if we're in production (when resourcesPath is available) or development
+    if (typeof process !== 'undefined' && process.resourcesPath) {
+      // Production: scaffold is in Resources folder
+      scaffoldPath = await path.join(process.resourcesPath, "scaffold");
+    } else {
+      // Development: scaffold is in the same directory as the app
+      const appCwd = await app.getCwd();
+      scaffoldPath = await path.join(appCwd, "scaffold");
+    }
     
     // Copy scaffold files to the 'files' subdirectory where viewer expects them
     const filesPath = await path.join(appPath, "files");

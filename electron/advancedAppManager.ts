@@ -31,6 +31,49 @@ export class AdvancedAppManager {
     this.setupIpcHandlers();
   }
 
+  // Helper function to detect available package managers
+  private async detectPackageManagers(appId: number): Promise<void> {
+    const managers = ['pnpm', 'npm', 'yarn'];
+    const available: string[] = [];
+    
+    for (const manager of managers) {
+      try {
+        const result = await new Promise<boolean>((resolve) => {
+          const child = spawn(manager, ['--version'], { 
+            stdio: 'ignore',
+            shell: true,
+            env: process.env 
+          });
+          child.on('close', (code) => resolve(code === 0));
+          child.on('error', () => resolve(false));
+          setTimeout(() => resolve(false), 3000); // 3 second timeout
+        });
+        
+        if (result) {
+          available.push(manager);
+        }
+      } catch (error) {
+        // Manager not available
+      }
+    }
+    
+    this.sendOutput(appId, {
+      message: `Available package managers: ${available.length > 0 ? available.join(', ') : 'none detected'}`,
+      type: 'stdout',
+      appId,
+      timestamp: Date.now()
+    });
+    
+    if (available.length === 0) {
+      this.sendOutput(appId, {
+        message: `Warning: No package managers detected. Please ensure Node.js and a package manager (npm, pnpm, or yarn) are installed and in your PATH.`,
+        type: 'stderr',
+        appId,
+        timestamp: Date.now()
+      });
+    }
+  }
+
   // Helper function to recursively remove directories (replaces fs-extra.remove)
   private async removeDirectory(dirPath: string): Promise<void> {
     try {
@@ -155,6 +198,9 @@ export class AdvancedAppManager {
       timestamp: Date.now(),
     });
 
+    // Detect available package managers for debugging
+    await this.detectPackageManagers(appId);
+
     // Start the development server
     const childProcess = this.spawnDevServer(appPath, appId);
     
@@ -208,6 +254,14 @@ export class AdvancedAppManager {
       if (attempts >= maxAttempts) {
         this.sendOutput(appId, {
           message: `Dev server at ${targetOrigin} not responding after ${maxAttempts} attempts, starting proxy anyway...`,
+          type: 'stdout',
+          appId,
+          timestamp: Date.now()
+        });
+        
+        // Log additional debugging information
+        this.sendOutput(appId, {
+          message: `Upstream error: connect ECONNREFUSED ${targetOrigin} - This usually means the dev server failed to start. Check the logs above for package manager errors.`,
           type: 'stderr',
           appId,
           timestamp: Date.now()
@@ -280,14 +334,15 @@ export class AdvancedAppManager {
       ? 'cmd'
       : '/bin/bash';
     
+    // Enhanced package manager fallback with better error handling
     const args = os.platform() === 'win32'
-      ? ['/c', '(pnpm install && pnpm run dev --port 32100 --force) || (npm install --legacy-peer-deps && npm run dev -- --port 32100 --force)']
-      : ['-c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force'];
+      ? ['/c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force || yarn install && yarn dev --port 32100']
+      : ['-c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force || yarn install && yarn dev --port 32100'];
 
-    // Fix PATH for production - include common package manager paths
+    // Enhanced PATH for production - comprehensive package manager paths
     const fixedEnv: Record<string, string> = { ...process.env, NODE_ENV: 'development' };
     if (os.platform() !== 'win32') {
-      // Add common Unix paths where package managers might be installed
+      // Comprehensive Unix paths where package managers might be installed
       const extraPaths = [
         '/usr/local/bin',
         '/opt/homebrew/bin', // Apple Silicon Homebrew
@@ -295,19 +350,53 @@ export class AdvancedAppManager {
         '/bin',
         `${os.homedir()}/.npm-global/bin`, // Global npm packages
         `${os.homedir()}/.local/bin`, // User local binaries
+        `${os.homedir()}/.pnpm`, // pnpm global bin
+        `${os.homedir()}/.yarn/bin`, // Yarn global bin
+        '/usr/local/lib/node_modules/.bin', // npm global modules bin
+        '/usr/local/share/npm/bin', // Alternative npm location
+        '/opt/local/bin', // MacPorts
+        '/sw/bin', // Fink
+        '/usr/local/node/bin', // Custom node installation
+        '/opt/node/bin', // Alternative node location
+        `${process.env.HOME}/.nvm/current/bin`, // NVM current version
       ];
       const currentPath = fixedEnv.PATH || '';
-      fixedEnv.PATH = [...extraPaths, currentPath].join(':');
+      const uniquePaths = [...new Set([...extraPaths, ...currentPath.split(':')])];
+      fixedEnv.PATH = uniquePaths.join(':');
     } else {
-      // Windows: Add common paths for package managers
+      // Comprehensive Windows paths for package managers
       const extraPaths = [
         'C:\\Program Files\\nodejs',
+        'C:\\Program Files (x86)\\nodejs',
         'C:\\Users\\AppData\\Roaming\\npm',
         `${os.homedir()}\\AppData\\Roaming\\npm`,
+        `${os.homedir()}\\AppData\\Local\\npm`,
+        `${process.env.LOCALAPPDATA}\\pnpm`,
+        `${process.env.APPDATA}\\npm`,
+        `${process.env.USERPROFILE}\\AppData\\Roaming\\npm`,
+        `${process.env.USERPROFILE}\\.yarn\\bin`,
+        'C:\\tools\\nodejs',
+        'C:\\nodejs',
       ];
       const currentPath = fixedEnv.PATH || '';
-      fixedEnv.PATH = [...extraPaths, currentPath].join(';');
+      const uniquePaths = [...new Set([...extraPaths, ...currentPath.split(';')])];
+      fixedEnv.PATH = uniquePaths.join(';');
     }
+
+    // Log environment details for debugging
+    this.sendOutput(appId, {
+      message: `Debug: Calling appService.runApp(${appId})...`,
+      type: 'stdout',
+      appId,
+      timestamp: Date.now()
+    });
+
+    this.sendOutput(appId, {
+      message: `Environment PATH: ${fixedEnv.PATH}`,
+      type: 'stdout',
+      appId,
+      timestamp: Date.now()
+    });
 
     const childProcess = spawn(command, args, {
       cwd: filesPath,
