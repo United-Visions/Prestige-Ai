@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
 import { AppError, AppOutput } from '@/types/appTypes';
@@ -387,6 +387,21 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     }
   };
 
+  const sendErrorsToTerminal = () => {
+    if (!errorReport?.hasErrors) {
+      showToast('No errors to send', 'info');
+      return;
+    }
+
+    const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
+    
+    // Store error prompt globally so terminal can access it
+    window.prestigeErrorPrompt = errorPrompt;
+    
+    // Notify user
+    showToast(`Prepared error summary for terminal. Switch to terminal mode and type "fix-errors".`, 'success');
+  };
+
   if (!isVisible || !selectedFile) {
     return null;
   }
@@ -597,17 +612,30 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 )}
                 
                 {errorReport?.hasErrors && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={autoFixErrors}
-                    disabled={isFixingErrors}
-                    className="h-8 px-3 text-orange-600 hover:text-orange-700"
-                    title={`Fix ${errorReport.buildErrors.length + errorReport.runtimeErrors.length} error(s) automatically`}
-                  >
-                    <AlertTriangle className="w-4 h-4 mr-1" />
-                    {isFixingErrors ? 'Fixing...' : `Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={autoFixErrors}
+                      disabled={isFixingErrors}
+                      className="h-8 px-3 text-orange-600 hover:text-orange-700"
+                      title={`Fix ${errorReport.buildErrors.length + errorReport.runtimeErrors.length} error(s) automatically`}
+                    >
+                      <AlertTriangle className="w-4 h-4 mr-1" />
+                      {isFixingErrors ? 'Fixing...' : `Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
+                    </Button>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={sendErrorsToTerminal}
+                      className="h-8 px-3 text-blue-600 hover:text-blue-700"
+                      title="Send error summary to terminal for Claude Code CLI"
+                    >
+                      <Send className="w-4 h-4 mr-1" />
+                      Send to Terminal
+                    </Button>
+                  </>
                 )}
                 
                 {appUrl && (

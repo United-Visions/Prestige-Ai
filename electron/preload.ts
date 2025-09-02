@@ -116,6 +116,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeAllListeners('advanced-app:error');
     }
   },
+
+  // Terminal operations
+  terminal: {
+    createSession: (options: {
+      cwd: string;
+      env?: Record<string, string>;
+      cols: number;
+      rows: number;
+      appId?: number;
+      appName?: string;
+    }): Promise<{ sessionId: string; pid: number }> => 
+      ipcRenderer.invoke('terminal:create-session', options),
+    
+    write: (sessionId: string, data: string): Promise<boolean> => 
+      ipcRenderer.invoke('terminal:write', sessionId, data),
+    
+    resize: (sessionId: string, cols: number, rows: number): Promise<boolean> => 
+      ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
+    
+    kill: (sessionId: string): Promise<boolean> => 
+      ipcRenderer.invoke('terminal:kill', sessionId),
+    
+    killSessionsForApp: (appId: number): Promise<void> => 
+      ipcRenderer.invoke('terminal:kill-sessions-for-app', appId),
+    
+    checkClaudeAvailability: (): Promise<boolean> => 
+      ipcRenderer.invoke('terminal:check-claude-availability'),
+    
+    // Event listeners for terminal data
+    onData: (sessionId: string, callback: (data: string) => void) => {
+      ipcRenderer.on(`terminal:data:${sessionId}`, (_event, data) => callback(data));
+    },
+    
+    onExit: (sessionId: string, callback: (exitCode: number) => void) => {
+      ipcRenderer.on(`terminal:exit:${sessionId}`, (_event, exitCode) => callback(exitCode));
+    },
+    
+    removeListeners: (sessionId: string) => {
+      ipcRenderer.removeAllListeners(`terminal:data:${sessionId}`);
+      ipcRenderer.removeAllListeners(`terminal:exit:${sessionId}`);
+    }
+  },
 })
 
 // Type definitions for the exposed API
@@ -183,6 +225,24 @@ declare global {
         onOutput: (callback: (appId: number, output: any) => void) => void
         onError: (callback: (appId: number, error: any) => void) => void
         removeAllListeners: () => void
+      }
+      terminal: {
+        createSession: (options: {
+          cwd: string;
+          env?: Record<string, string>;
+          cols: number;
+          rows: number;
+          appId?: number;
+          appName?: string;
+        }) => Promise<{ sessionId: string; pid: number }>
+        write: (sessionId: string, data: string) => Promise<boolean>
+        resize: (sessionId: string, cols: number, rows: number) => Promise<boolean>
+        kill: (sessionId: string) => Promise<boolean>
+        killSessionsForApp: (appId: number) => Promise<void>
+        checkClaudeAvailability: () => Promise<boolean>
+        onData: (sessionId: string, callback: (data: string) => void) => void
+        onExit: (sessionId: string, callback: (exitCode: number) => void) => void
+        removeListeners: (sessionId: string) => void
       }
     }
   }

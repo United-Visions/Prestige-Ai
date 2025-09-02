@@ -22,7 +22,7 @@ import { ClaudeCodeService } from '@/services/claudeCodeService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { EnhancedMarkdownRenderer } from './EnhancedMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
-import { ClaudeCodeTerminal } from '@/components/terminal/ClaudeCodeTerminal';
+import { RealTerminal } from '@/components/terminal/RealTerminal';
 import type { Message } from '@/types';
 
 export function ChatInterface() {
@@ -450,8 +450,8 @@ export function ChatInterface() {
           {showTerminalMode ? (
             /* Claude Code Terminal Mode */
             <div className="flex-1 flex">
-              <ClaudeCodeTerminal 
-                key="claude-terminal" // Force re-render when switching modes
+              <RealTerminal 
+                key="real-terminal" // Force re-render when switching modes
                 onClose={() => setShowTerminalMode(false)}
               />
             </div>

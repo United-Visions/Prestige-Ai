@@ -11,6 +11,9 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
 
+// Use regular child_process for terminal functionality (cross-platform compatible)
+// This provides basic terminal functionality without requiring node-pty
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -641,4 +644,306 @@ function cleanupOldTempFiles(): void {
 // Clean up old temp files on startup
 app.whenReady().then(() => {
   cleanupOldTempFiles();
+});
+
+// Terminal Session Management
+interface TerminalSession {
+  id: string;
+  pid: number;
+  process: ChildProcess;
+  cwd: string;
+  appId?: number;
+}
+
+const terminalSessions: Map<string, TerminalSession> = new Map();
+
+// Utility to enhance PATH with common locations
+function enhancePath(currentPath: string): string {
+  const commonPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    '/usr/bin',
+    '/bin',
+    process.env.HOME + '/.local/bin',
+    process.env.HOME + '/bin',
+    // Add npm global bins
+    '/usr/local/lib/node_modules/.bin',
+    process.env.HOME + '/.npm-global/bin',
+    // Add Homebrew paths for M1/M2 Macs
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin'
+  ];
+
+  const pathSeparator = process.platform === 'win32' ? ';' : ':';
+  const pathComponents = currentPath.split(pathSeparator);
+  
+  // Add missing common paths
+  commonPaths.forEach(path => {
+    if (!pathComponents.includes(path)) {
+      pathComponents.unshift(path);
+    }
+  });
+
+  return pathComponents.join(pathSeparator);
+}
+
+// Terminal IPC Handlers
+ipcMain.handle('terminal:create-session', async (_, options: {
+  cwd: string;
+  env?: Record<string, string>;
+  cols: number;
+  rows: number;
+  appId?: number;
+  appName?: string;
+}): Promise<{ sessionId: string; pid: number }> => {
+  try {
+    const sessionId = `terminal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Determine shell based on platform with simple, reliable fallbacks
+    let shell: string;
+    let shellArgs: string[] = [];
+    
+    if (process.platform === 'win32') {
+      shell = 'cmd.exe';
+    } else {
+      // For Unix-like systems, use bash with fallback to sh
+      // Try to use the basename of the user's shell, or fallback to bash/sh
+      const userShell = process.env.SHELL;
+      if (userShell && userShell.includes('zsh')) {
+        shell = 'bash'; // Use bash instead of zsh for better compatibility
+      } else if (userShell && userShell.includes('bash')) {
+        shell = 'bash';
+      } else {
+        shell = 'sh'; // Most universal fallback
+      }
+      
+      // For interactive usage, try to make it interactive
+      if (shell === 'bash') {
+        shellArgs = ['-i']; // Interactive bash
+      }
+    }
+
+    // Prepare environment with app context
+    const environment = {
+      ...process.env,
+      ...options.env,
+      PRESTIGE_APP_ID: options.appId?.toString(),
+      PRESTIGE_APP_NAME: options.appName,
+      PRESTIGE_APP_PATH: options.cwd,
+      CLAUDE_CODE_WORKING_DIR: options.cwd,
+      PWD: options.cwd,
+      // Ensure PATH includes common locations for Claude Code
+      PATH: enhancePath(process.env.PATH || '')
+    };
+
+    console.log('🖥️ Creating terminal session:', {
+      sessionId,
+      shell,
+      cwd: options.cwd,
+      cwdExists: existsSync(options.cwd),
+      cols: options.cols,
+      rows: options.rows,
+      appId: options.appId,
+      userShell: process.env.SHELL,
+      platform: process.platform
+    });
+
+    // Validate that we have a working directory
+    if (!existsSync(options.cwd)) {
+      throw new Error(`Working directory does not exist: ${options.cwd}`);
+    }
+
+    // Create shell process using child_process
+    let shellProcess: ChildProcess;
+    try {
+      console.log(`🖥️ Spawning shell: ${shell} ${shellArgs.join(' ')} in ${options.cwd}`);
+      shellProcess = spawn(shell, shellArgs, {
+        cwd: options.cwd,
+        env: environment,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch (spawnError) {
+      console.error('❌ Failed to spawn shell process:', spawnError);
+      throw new Error(`Failed to spawn shell ${shell}: ${spawnError}`);
+    }
+
+    if (!shellProcess.pid) {
+      throw new Error(`Failed to start shell process: ${shell} - no PID assigned`);
+    }
+
+    const session: TerminalSession = {
+      id: sessionId,
+      pid: shellProcess.pid,
+      process: shellProcess,
+      cwd: options.cwd,
+      appId: options.appId
+    };
+
+    // Set up event forwarding to renderer
+    shellProcess.stdout?.on('data', (data: Buffer) => {
+      if (mainWindow?.webContents) {
+        mainWindow.webContents.send(`terminal:data:${sessionId}`, data.toString());
+      }
+    });
+
+    shellProcess.stderr?.on('data', (data: Buffer) => {
+      if (mainWindow?.webContents) {
+        mainWindow.webContents.send(`terminal:data:${sessionId}`, data.toString());
+      }
+    });
+
+    shellProcess.on('close', (code: number | null) => {
+      if (mainWindow?.webContents) {
+        mainWindow.webContents.send(`terminal:exit:${sessionId}`, code || 0);
+      }
+      // Clean up session
+      terminalSessions.delete(sessionId);
+      console.log(`🗑️ Terminal session ${sessionId} cleaned up (exit code: ${code})`);
+    });
+
+    // Handle process errors (including spawn failures)
+    shellProcess.on('error', (error: NodeJS.ErrnoException) => {
+      console.error(`Terminal session ${sessionId} error:`, error);
+      
+      // Send error message to terminal
+      if (mainWindow?.webContents) {
+        const errorMsg = `\r\n\x1b[1;31m✗ Shell Error: ${error.message}\x1b[0m\r\n`;
+        if (error.code === 'ENOENT') {
+          const suggestedMsg = `\r\n\x1b[1;33mTip: Shell "${shell}" not found. Try using a different shell or check PATH.\x1b[0m\r\n`;
+          mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg + suggestedMsg);
+        } else {
+          mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg);
+        }
+        mainWindow.webContents.send(`terminal:exit:${sessionId}`, 1);
+      }
+      
+      terminalSessions.delete(sessionId);
+    });
+
+    terminalSessions.set(sessionId, session);
+
+    console.log('✅ Terminal session created:', {
+      sessionId,
+      pid: shellProcess.pid
+    });
+
+    // Send initial welcome message
+    setTimeout(() => {
+      if (mainWindow?.webContents) {
+        const welcomeMessage = `\x1b[1;32mPrestige AI Terminal Ready\x1b[0m\n\x1b[1;36mApp: ${options.appName || 'Unknown'}\x1b[0m\n\x1b[1;36mPath: ${options.cwd}\x1b[0m\n\n`;
+        mainWindow.webContents.send(`terminal:data:${sessionId}`, welcomeMessage);
+      }
+    }, 100);
+
+    return {
+      sessionId,
+      pid: shellProcess.pid
+    };
+
+  } catch (error) {
+    console.error('❌ Failed to create terminal session:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('terminal:write', async (_, sessionId: string, data: string): Promise<boolean> => {
+  const session = terminalSessions.get(sessionId);
+  if (!session) {
+    console.warn(`Terminal session ${sessionId} not found`);
+    return false;
+  }
+
+  try {
+    session.process.stdin?.write(data);
+    return true;
+  } catch (error) {
+    console.error(`Failed to write to terminal session ${sessionId}:`, error);
+    return false;
+  }
+});
+
+ipcMain.handle('terminal:resize', async (_, sessionId: string, cols: number, rows: number): Promise<boolean> => {
+  // Note: child_process doesn't support resize like node-pty, but we can acknowledge the request
+  console.log(`Terminal resize requested for ${sessionId}: ${cols}x${rows}`);
+  return true;
+});
+
+ipcMain.handle('terminal:kill', async (_, sessionId: string): Promise<boolean> => {
+  const session = terminalSessions.get(sessionId);
+  if (!session) {
+    console.warn(`Terminal session ${sessionId} not found`);
+    return false;
+  }
+
+  try {
+    session.process.kill('SIGTERM');
+    terminalSessions.delete(sessionId);
+    console.log(`🗑️ Terminal session ${sessionId} killed`);
+    return true;
+  } catch (error) {
+    console.error(`Failed to kill terminal session ${sessionId}:`, error);
+    return false;
+  }
+});
+
+ipcMain.handle('terminal:kill-sessions-for-app', async (_, appId: number): Promise<void> => {
+  const sessionsToKill = Array.from(terminalSessions.values()).filter(session => session.appId === appId);
+  
+  for (const session of sessionsToKill) {
+    try {
+      session.process.kill('SIGTERM');
+      terminalSessions.delete(session.id);
+      console.log(`🗑️ Terminal session ${session.id} killed for app ${appId}`);
+    } catch (error) {
+      console.error(`Failed to kill terminal session ${session.id}:`, error);
+    }
+  }
+});
+
+ipcMain.handle('terminal:check-claude-availability', async (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const child = spawn('claude', ['--version'], { 
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        PATH: enhancePath(process.env.PATH || '')
+      }
+    });
+
+    let output = '';
+    child.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    child.on('close', (code) => {
+      const isAvailable = code === 0 && output.includes('claude');
+      console.log('🔍 Direct Claude Code availability check:', { isAvailable, code, output: output.trim() });
+      resolve(isAvailable);
+    });
+
+    child.on('error', (error) => {
+      console.log('🔍 Direct Claude Code availability check failed:', error.message);
+      resolve(false);
+    });
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, 5000);
+  });
+});
+
+// Clean up terminal sessions on app quit
+app.on('before-quit', () => {
+  console.log('🧹 Cleaning up terminal sessions before quit...');
+  for (const [sessionId, session] of terminalSessions.entries()) {
+    try {
+      session.process.kill('SIGTERM');
+      console.log(`🗑️ Killed terminal session ${sessionId}`);
+    } catch (error) {
+      console.error(`Failed to kill terminal session ${sessionId}:`, error);
+    }
+  }
+  terminalSessions.clear();
 });

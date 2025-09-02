@@ -65,7 +65,7 @@ export function ClaudeCodeTerminal({ onClose }: ClaudeCodeTerminalProps) {
           foreground: '#ffffff',
           cursor: '#ffffff',
           cursorAccent: '#ffffff',
-          selection: '#44475a',
+          selectionBackground: '#44475a',
           black: '#000000',
           red: '#ff5555',
           green: '#50fa7b',
