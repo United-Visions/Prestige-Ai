@@ -10,43 +10,22 @@ import { initializeDatabase, closeDatabase } from './db';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
- 
-// Add error handling to prevent crashes
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit the app, just log the error
-});
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception thrown:', error);
-  // Don't exit the app, just log the error
-});
-
-// Enable live reload for development
-if (process.env.NODE_ENV === 'development') {
-  try {
-    require('electron-reload')(__dirname, {
-      electron: require(`${__dirname}/../node_modules/electron/dist/electron`),
-      hardResetMethod: 'restart',  // Use restart instead of exit to prevent crashes
-      ignored: [
-        /node_modules/,
-        /[\/\\]\./,
-        /\.git/,
-        /builds/,
-        /dist/,
-        /\.log$/,
-        /\.sqlite$/,
-        /\.db$/,
-        // Ignore files that might change during app rebuild to prevent restart loops
-        /prestige-ai\/.*\/files/  // Ignore changes in scaffolded app files
-      ]
-    });
-  } catch (error) {
-    console.log('electron-reload not available in development mode');
-  }
+// Handle creating/removing shortcuts on Windows when installing/uninstalling.
+if (require('electron-squirrel-startup')) {
+  app.quit();
 }
 
-let mainWindow: BrowserWindow | null = null
+// Centralized path provider
+ipcMain.handle('app:get-paths', () => {
+  return {
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged,
+  };
+});
+
+let mainWindow: BrowserWindow | null = null;
 
 const createWindow = (): void => {
   mainWindow = new BrowserWindow({
@@ -418,7 +397,7 @@ ipcMain.handle('fs:read-json', async (event, path: string): Promise<any> => {
   return JSON.parse(content);
 });
 
-ipcMain.handle('fs:write-json', async (event, path: string, data: any, options?: object): Promise<void> => {
+ipcMain.handle('fs:write-json', async (event, path: string, data: any, options?: { spaces?: number }): Promise<void> => {
   const content = JSON.stringify(data, null, options?.spaces || 2);
   await fs.promises.writeFile(path, content, 'utf8');
 });
@@ -447,8 +426,8 @@ ipcMain.handle('fs:write-file', async (event, filePath: string, content: string)
   
   try {
     // Ensure directory exists
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, content, 'utf8');
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, 'utf8');
   } catch (error) {
     throw new Error(`Failed to write file ${filePath}: ${error}`);
   }

@@ -266,6 +266,27 @@ export class AdvancedAppManager {
           appId,
           timestamp: Date.now()
         });
+
+        // Check if the process is still running
+        const runningProcess = this.runningProcesses.get(appId);
+        if (runningProcess && runningProcess.process) {
+          const isRunning = !runningProcess.process.killed && runningProcess.process.exitCode === null;
+          this.sendOutput(appId, {
+            message: `Process status: PID=${runningProcess.process.pid}, killed=${runningProcess.process.killed}, exitCode=${runningProcess.process.exitCode}, isRunning=${isRunning}`,
+            type: 'stderr',
+            appId,
+            timestamp: Date.now()
+          });
+          
+          if (!isRunning) {
+            this.sendOutput(appId, {
+              message: `Process has already exited. This indicates the dev server command failed. Check if the app has the correct package.json scripts and dependencies.`,
+              type: 'stderr',
+              appId,
+              timestamp: Date.now()
+            });
+          }
+        }
       }
 
       try {
@@ -332,60 +353,33 @@ export class AdvancedAppManager {
     
     const command = os.platform() === 'win32' 
       ? 'cmd'
-      : '/bin/bash';
+      : '/bin/sh';
     
     // Enhanced package manager fallback with better error handling
     const args = os.platform() === 'win32'
-      ? ['/c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force || yarn install && yarn dev --port 32100']
-      : ['-c', 'pnpm install && pnpm run dev --port 32100 --force || npm install --legacy-peer-deps && npm run dev -- --port 32100 --force || yarn install && yarn dev --port 32100'];
+      ? ['/c', 'pnpm install && pnpm run dev || (npm install --legacy-peer-deps && npm run dev) || (yarn install && yarn dev)']
+      : ['-c', 'pnpm install && pnpm run dev || (npm install --legacy-peer-deps && npm run dev) || (yarn install && yarn dev)'];
 
-    // Enhanced PATH for production - comprehensive package manager paths
-    const fixedEnv: Record<string, string> = { ...process.env, NODE_ENV: 'development' };
+    // Fix PATH for production - this is critical
+    const fixedEnv = { ...process.env };
     if (os.platform() !== 'win32') {
-      // Comprehensive Unix paths where package managers might be installed
-      const extraPaths = [
-        '/usr/local/bin',
-        '/opt/homebrew/bin', // Apple Silicon Homebrew
-        '/usr/bin',
-        '/bin',
-        `${os.homedir()}/.npm-global/bin`, // Global npm packages
-        `${os.homedir()}/.local/bin`, // User local binaries
-        `${os.homedir()}/.pnpm`, // pnpm global bin
-        `${os.homedir()}/.yarn/bin`, // Yarn global bin
-        '/usr/local/lib/node_modules/.bin', // npm global modules bin
-        '/usr/local/share/npm/bin', // Alternative npm location
-        '/opt/local/bin', // MacPorts
-        '/sw/bin', // Fink
-        '/usr/local/node/bin', // Custom node installation
-        '/opt/node/bin', // Alternative node location
-        `${process.env.HOME}/.nvm/current/bin`, // NVM current version
-      ];
-      const currentPath = fixedEnv.PATH || '';
-      const uniquePaths = [...new Set([...extraPaths, ...currentPath.split(':')])];
-      fixedEnv.PATH = uniquePaths.join(':');
-    } else {
-      // Comprehensive Windows paths for package managers
-      const extraPaths = [
-        'C:\\Program Files\\nodejs',
-        'C:\\Program Files (x86)\\nodejs',
-        'C:\\Users\\AppData\\Roaming\\npm',
-        `${os.homedir()}\\AppData\\Roaming\\npm`,
-        `${os.homedir()}\\AppData\\Local\\npm`,
-        `${process.env.LOCALAPPDATA}\\pnpm`,
-        `${process.env.APPDATA}\\npm`,
-        `${process.env.USERPROFILE}\\AppData\\Roaming\\npm`,
-        `${process.env.USERPROFILE}\\.yarn\\bin`,
-        'C:\\tools\\nodejs',
-        'C:\\nodejs',
-      ];
-      const currentPath = fixedEnv.PATH || '';
-      const uniquePaths = [...new Set([...extraPaths, ...currentPath.split(';')])];
-      fixedEnv.PATH = uniquePaths.join(';');
+      const standardPaths = ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+      const homebrewPath = process.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin';
+      const userPaths = [`${os.homedir()}/.npm-global/bin`, `${os.homedir()}/.local/bin`, `${os.homedir()}/.pnpm`, `${os.homedir()}/.yarn/bin`];
+      
+      const pathSet = new Set([
+        ...standardPaths,
+        homebrewPath,
+        ...userPaths,
+        ...(fixedEnv.PATH ? fixedEnv.PATH.split(':') : [])
+      ]);
+      
+      fixedEnv.PATH = Array.from(pathSet).join(':');
     }
-
+    
     // Log environment details for debugging
     this.sendOutput(appId, {
-      message: `Debug: Calling appService.runApp(${appId})...`,
+      message: `Debug: Spawning dev server for app ${appId}...`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
@@ -393,6 +387,20 @@ export class AdvancedAppManager {
 
     this.sendOutput(appId, {
       message: `Environment PATH: ${fixedEnv.PATH}`,
+      type: 'stdout',
+      appId,
+      timestamp: Date.now()
+    });
+
+    this.sendOutput(appId, {
+      message: `Executing command: ${command} ${args.join(' ')}`,
+      type: 'stdout',
+      appId,
+      timestamp: Date.now()
+    });
+
+    this.sendOutput(appId, {
+      message: `Working directory: ${filesPath}`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
@@ -408,6 +416,7 @@ export class AdvancedAppManager {
 
     childProcess.stdout?.on('data', (data: Buffer) => {
       const message = data.toString();
+      console.log(`[APP-${appId}-STDOUT]`, message);
       this.sendOutput(appId, {
         message,
         type: 'stdout',
@@ -418,6 +427,7 @@ export class AdvancedAppManager {
 
     childProcess.stderr?.on('data', (data: Buffer) => {
       const message = data.toString();
+      console.log(`[APP-${appId}-STDERR]`, message);
       this.sendOutput(appId, {
         message,
         type: 'stderr',

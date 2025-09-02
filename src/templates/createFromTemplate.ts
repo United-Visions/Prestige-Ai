@@ -16,14 +16,15 @@ export async function createFromTemplate({
     // Handle both development and production paths
     let scaffoldPath: string;
     
+    const { resourcesPath, appPath: electronAppPath, isPackaged } = await window.electronAPI.app.getPaths();
+
     // Check if we're in production (when resourcesPath is available) or development
-    if (typeof process !== 'undefined' && process.resourcesPath) {
+    if (isPackaged) {
       // Production: scaffold is in Resources folder
-      scaffoldPath = await path.join(process.resourcesPath, "scaffold");
+      scaffoldPath = await path.join(resourcesPath, "scaffold");
     } else {
-      // Development: scaffold is in the same directory as the app
-      const appCwd = await app.getCwd();
-      scaffoldPath = await path.join(appCwd, "scaffold");
+      // Development: scaffold is in the project root
+      scaffoldPath = await path.join(electronAppPath, "scaffold");
     }
     
     // Copy scaffold files to the 'files' subdirectory where viewer expects them
@@ -181,9 +182,9 @@ async function cloneRepo(repoUrl: string): Promise<string> {
     );
   }
 
-  const cwd = await app.getCwd();
+  const appDataPath = await app.getAppDataPath();
   const cachePath = await path.join(
-    cwd,
+    appDataPath,
     "templates-cache",
     orgName,
     repoBasename

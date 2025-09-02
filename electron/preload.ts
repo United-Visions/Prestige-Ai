@@ -55,8 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('app:get-desktop-path'),
     initializePrestigeFolder: (): Promise<string> => 
       ipcRenderer.invoke('app:initialize-prestige-folder'),
-    getCwd: (): Promise<string> =>
-      ipcRenderer.invoke('app:get-cwd'),
+    getPaths: () => ipcRenderer.invoke('app:get-paths'),
+  getCwd: () => ipcRenderer.invoke('app:get-cwd'),
   },
 
   // Path utilities
@@ -146,7 +146,11 @@ declare global {
         getAppDataPath: () => Promise<string>
         getDesktopPath: () => Promise<string>
         initializePrestigeFolder: () => Promise<string>
-        getCwd: () => Promise<string>
+        getPaths: () => Promise<{
+          resourcesPath: string
+          appPath: string
+          isPackaged: boolean
+        }>
       }
       path: {
         join: (...paths: string[]) => Promise<string>

@@ -1,7 +1,7 @@
-import { getTemplateOrThrow, DEFAULT_TEMPLATE_ID } from '@/templates';
+import { getTemplateOrThrow, DEFAULT_TEMPLATE_ID } from '../templates';
 import { copyDirectoryRecursive } from '../utils/file_utils';
 
-const { path, app } = window.electronAPI;
+const { path } = window.electronAPI;
 
 export interface CreateFromTemplateParams {
   appPath: string;
@@ -24,15 +24,12 @@ export class TemplateService {
     const templateId = params.templateId ?? DEFAULT_TEMPLATE_ID;
     
     if (templateId === "vite-react") {
-      // Use local scaffold directory for the default React template
       await this.createFromLocalScaffold(params.appPath);
       return;
     }
 
-    // Use GitHub template
     const template = getTemplateOrThrow(templateId);
     if (!template.githubUrl) {
-      // Fallback to local scaffold if no GitHub URL
       console.warn(`Template ${templateId} has no GitHub URL, using local scaffold`);
       await this.createFromLocalScaffold(params.appPath);
       return;
@@ -42,21 +39,12 @@ export class TemplateService {
   }
 
   private async createFromLocalScaffold(appPath: string): Promise<void> {
-    // Use direct scaffold copying like CCdyad does
-    // Handle both development and production paths
-    let scaffoldPath: string;
+    const { resourcesPath, appPath: electronAppPath, isPackaged } = await window.electronAPI.app.getPaths();
+
+    const scaffoldPath = isPackaged
+      ? await path.join(resourcesPath, "scaffold")
+      : await path.join(electronAppPath, "scaffold");
     
-    // Check if we're in production (when resourcesPath is available) or development
-    if (typeof process !== 'undefined' && process.resourcesPath) {
-      // Production: scaffold is in Resources folder
-      scaffoldPath = await path.join(process.resourcesPath, "scaffold");
-    } else {
-      // Development: scaffold is in the same directory as the app
-      const appCwd = await app.getCwd();
-      scaffoldPath = await path.join(appCwd, "scaffold");
-    }
-    
-    // Copy scaffold files to the 'files' subdirectory where viewer expects them
     const filesPath = await path.join(appPath, "files");
     await copyDirectoryRecursive(scaffoldPath, filesPath);
   }
@@ -67,5 +55,4 @@ export class TemplateService {
     console.log(`Would clone ${githubUrl} to ${appPath}`);
     await this.createFromLocalScaffold(appPath);
   }
-
 }
