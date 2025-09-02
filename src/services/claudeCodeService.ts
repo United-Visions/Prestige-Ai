@@ -16,6 +16,11 @@ export class ClaudeCodeService {
     this.appManagementService = AppManagementService.getInstance();
     this.codebaseService = CodebaseExtractionService.getInstance();
     this.messageProcessor = MessageProcessingService.getInstance();
+    
+    // Initialize availability check
+    this.checkAvailability().catch(error => {
+      console.error('Failed to check Claude Code availability during service initialization:', error);
+    });
   }
 
   public static getInstance(): ClaudeCodeService {
