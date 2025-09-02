@@ -351,14 +351,9 @@ export class AdvancedAppManager {
     // The actual web app code is in the 'files' subdirectory
     const filesPath = path.join(appPath, 'files');
     
-    const command = os.platform() === 'win32' 
-      ? 'cmd'
-      : '/bin/sh';
-    
-    // Enhanced package manager fallback with better error handling
-    const args = os.platform() === 'win32'
-      ? ['/c', 'pnpm install && pnpm run dev || (npm install --legacy-peer-deps && npm run dev) || (yarn install && yarn dev)']
-      : ['-c', 'pnpm install && pnpm run dev || (npm install --legacy-peer-deps && npm run dev) || (yarn install && yarn dev)'];
+    // Use CCdyad's exact approach - simple shell command with || fallback
+    const command = "(pnpm install && pnpm run dev --port 32100) || (npm install --legacy-peer-deps && npm run dev -- --port 32100)";
+    const args: string[] = []; // Empty args array like CCdyad
 
     // Fix PATH for production - this is critical
     const fixedEnv = { ...process.env };
@@ -408,9 +403,9 @@ export class AdvancedAppManager {
 
     const childProcess = spawn(command, args, {
       cwd: filesPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
-      detached: os.platform() !== 'win32', // Create a new process group on Unix systems
+      shell: true, // Like CCdyad - let shell handle the command
+      stdio: 'pipe', // Like CCdyad
+      detached: false, // Like CCdyad - attach to main process
       env: fixedEnv
     });
 

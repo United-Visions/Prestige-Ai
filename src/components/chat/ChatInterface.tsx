@@ -17,7 +17,6 @@ import { Sparkles, FileText, Code, Zap, Play, Settings, ChevronDown, Loader, Sto
 import { AppSidebar } from '../apps/AppSidebar';
 import { processAgentResponse } from '@/services/agentResponseProcessor';
 import { constructSystemPrompt, readAiRules } from '@/prompts/system_prompt';
-import { LargeLanguageModel, DEFAULT_MODEL } from '@/lib/models';
 import { aiModelService, StreamChunk } from '@/services/aiModelService';
 import { ClaudeCodeService } from '@/services/claudeCodeService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
@@ -31,12 +30,14 @@ export function ChatInterface() {
     currentConversation,
     isGenerating,
     error,
+    selectedModel,
     loadApps,
     createApp,
     createConversation,
     addMessage,
     setIsGenerating,
     setError,
+    setSelectedModel,
   } = useAppStore();
 
   const { showPreviewMode } = useCodeViewerStore();
@@ -45,7 +46,6 @@ export function ChatInterface() {
   const [input, setInput] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_TEMPLATE_ID);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<LargeLanguageModel>(DEFAULT_MODEL);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
@@ -177,7 +177,7 @@ export function ChatInterface() {
       const systemPrompt = await getSystemPrompt();
       let agentResponse: string;
 
-      if (selectedModel.provider === 'auto' && selectedModel.name === 'Claude Code') {
+      if (selectedModel.provider === 'claude-code' || (selectedModel.provider === 'auto' && selectedModel.name === 'Claude Code')) {
         // Use the existing ClaudeCodeService for the CLI agent
         const claudeService = ClaudeCodeService.getInstance();
         agentResponse = await claudeService.continueConversation(conversationId, content);

@@ -177,11 +177,59 @@ ipcMain.handle('claude-code:check-availability', async (): Promise<boolean> => {
     });
 
     childProcess.on('close', (code: number | null) => {
+      // Claude CLI is installed if the command succeeds
+      // Even with usage limits, the CLI is still "available" for installation purposes
       resolve(code === 0);
     });
 
     childProcess.on('error', () => {
       resolve(false);
+    });
+  });
+});
+
+// New handler to check Claude Code status including usage limits
+ipcMain.handle('claude-code:check-status', async (): Promise<{ available: boolean; hasUsageLimit: boolean; error?: string }> => {
+  return new Promise((resolve) => {
+    // First check if CLI is installed
+    const versionProcess = spawn('claude', ['--version'], {
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    versionProcess.on('close', (code: number | null) => {
+      if (code !== 0) {
+        resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not installed' });
+        return;
+      }
+
+      // CLI is installed, now check for usage limits by trying a simple command
+      const testProcess = spawn('claude', ['--help'], {
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stderr = '';
+      testProcess.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      testProcess.on('close', (testCode: number | null) => {
+        const hasUsageLimit = stderr.includes('Usage limit reached') || stderr.includes('limit reached');
+        resolve({ 
+          available: true, 
+          hasUsageLimit, 
+          error: hasUsageLimit ? 'Usage limit reached' : undefined 
+        });
+      });
+
+      testProcess.on('error', () => {
+        resolve({ available: true, hasUsageLimit: false, error: 'Could not check usage status' });
+      });
+    });
+
+    versionProcess.on('error', () => {
+      resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not found' });
     });
   });
 });

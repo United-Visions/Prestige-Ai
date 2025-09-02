@@ -47,15 +47,18 @@ export function EnhancedModelPicker({
   const getStatusIcon = (model: LargeLanguageModel) => {
     const availability = getModelAvailability(model.name, model.provider);
     
-    if (model.name === 'Claude Code') {
+    if (model.name === 'claude-code') {
       const anthropicStatus = getProviderStatus('anthropic');
       const hasApiKey = anthropicStatus.hasKey && anthropicStatus.isValid;
       const hasCli = cliStatus.claudeCodeAvailable;
+      const hasUsageLimit = cliStatus.hasUsageLimit;
       
       if (hasApiKey) {
         return <CheckCircle className="h-3 w-3 text-green-500" />;
-      } else if (hasCli) {
+      } else if (hasCli && !hasUsageLimit) {
         return <Terminal className="h-3 w-3 text-blue-500" />;
+      } else if (hasCli && hasUsageLimit) {
+        return <AlertCircle className="h-3 w-3 text-orange-500" />;
       } else {
         return <AlertCircle className="h-3 w-3 text-orange-500" />;
       }
@@ -74,15 +77,27 @@ export function EnhancedModelPicker({
   const getStatusBadge = (model: LargeLanguageModel) => {
     const availability = getModelAvailability(model.name, model.provider);
     
-    if (model.name === 'Claude Code') {
+    if (model.name === 'claude-code') {
       const anthropicStatus = getProviderStatus('anthropic');
       const hasApiKey = anthropicStatus.hasKey && anthropicStatus.isValid;
       const hasCli = cliStatus.claudeCodeAvailable;
+      const hasUsageLimit = cliStatus.hasUsageLimit;
+      
+      // Debug: Log the status to console
+      console.log('Claude Code Status Debug:', {
+        hasApiKey,
+        hasCli,
+        hasUsageLimit,
+        cliStatus,
+        anthropicStatus
+      });
       
       if (hasApiKey) {
         return <Badge variant="outline" className="text-green-600 border-green-200">API Ready</Badge>;
-      } else if (hasCli) {
+      } else if (hasCli && !hasUsageLimit) {
         return <Badge variant="outline" className="text-blue-600 border-blue-200">CLI Ready</Badge>;
+      } else if (hasCli && hasUsageLimit) {
+        return <Badge variant="outline" className="text-orange-600 border-orange-200">Usage Limited</Badge>;
       } else {
         return <Badge variant="outline" className="text-orange-600 border-orange-200">Setup Needed</Badge>;
       }
@@ -99,15 +114,18 @@ export function EnhancedModelPicker({
   };
 
   const getHeaderStatus = () => {
-    if (selectedModel.name === 'Claude Code') {
+    if (selectedModel.name === 'claude-code') {
       const anthropicStatus = getProviderStatus('anthropic');
       const hasApiKey = anthropicStatus.hasKey && anthropicStatus.isValid;
       const hasCli = cliStatus.claudeCodeAvailable;
+      const hasUsageLimit = cliStatus.hasUsageLimit;
       
       if (hasApiKey) {
         return { icon: <CheckCircle className="h-4 w-4 text-green-500" />, text: "API Ready" };
-      } else if (hasCli) {
+      } else if (hasCli && !hasUsageLimit) {
         return { icon: <Terminal className="h-4 w-4 text-blue-500" />, text: "CLI Ready" };
+      } else if (hasCli && hasUsageLimit) {
+        return { icon: <AlertCircle className="h-4 w-4 text-orange-500" />, text: "Usage Limited" };
       } else {
         return { icon: <AlertCircle className="h-4 w-4 text-orange-500" />, text: "Setup Needed" };
       }

@@ -1,15 +1,21 @@
 import type { ExecuteOptions, ProcessedResponse, FileOperation, App } from '@/types';
 import { AppManagementService } from './appManagementService';
+import { CodebaseExtractionService } from './codebaseExtractionService';
+import { MessageProcessingService, type CoreMessage } from './messageProcessingService';
 
 export class ClaudeCodeService {
   private static instance: ClaudeCodeService;
   private isAvailable: boolean = false;
   private isElectron: boolean = false;
   private appManagementService: AppManagementService;
+  private codebaseService: CodebaseExtractionService;
+  private messageProcessor: MessageProcessingService;
 
   private constructor() {
     this.isElectron = typeof window !== 'undefined' && (window as any).electronAPI;
     this.appManagementService = AppManagementService.getInstance();
+    this.codebaseService = CodebaseExtractionService.getInstance();
+    this.messageProcessor = MessageProcessingService.getInstance();
   }
 
   public static getInstance(): ClaudeCodeService {
@@ -22,7 +28,16 @@ export class ClaudeCodeService {
   async checkAvailability(): Promise<boolean> {
     try {
       if (this.isElectron) {
-        this.isAvailable = await (window as any).electronAPI.claudeCode.checkAvailability();
+        // Use the new status check that provides more detailed information
+        const status = await (window as any).electronAPI.claudeCode.checkStatus();
+        this.isAvailable = status.available;
+        
+        if (status.available && status.hasUsageLimit) {
+          console.warn('Claude Code CLI is installed but has usage limits:', status.error);
+        } else if (!status.available) {
+          console.warn('Claude Code CLI is not available:', status.error);
+        }
+        
         return this.isAvailable;
       }
       // Simulate for web
@@ -43,11 +58,44 @@ export class ClaudeCodeService {
     if (this.isElectron) {
       workingDirectory = await (window as any).electronAPI.app.initializePrestigeFolder();
     }
+
+    // Get app path
+    const appPath = workingDirectory ? `${workingDirectory}/${app.path}` : '';
     
-    const response = await this.executePrompt(userPrompt, {
-      context: `Create a new app named ${app.name} in the directory ${app.path}.`,
-      cwd: workingDirectory ? `${workingDirectory}/${app.path}` : undefined,
+    // For new apps, extract the scaffold codebase as starting context
+    let codebaseInfo = '';
+    try {
+      if (appPath) {
+        const fullAppPath = await window.electronAPI.path.join(workingDirectory, app.path);
+        const { formattedOutput } = await this.codebaseService.extractCodebase(fullAppPath);
+        codebaseInfo = formattedOutput;
+      }
+    } catch (error) {
+      console.warn('Could not extract scaffold codebase for new app:', error);
+      codebaseInfo = 'No existing codebase found. This is a new application.';
+    }
+
+    // Create messages in CCdyad format for new app creation
+    const chatMessages: CoreMessage[] = [
+      {
+        role: 'user',
+        content: `This is my codebase. ${codebaseInfo}`
+      },
+      {
+        role: 'assistant', 
+        content: 'OK, got it. I\'m ready to help'
+      },
+      {
+        role: 'user',
+        content: userPrompt
+      }
+    ];
+
+    const response = await this.executeWithMessages(chatMessages, {
+      cwd: appPath,
+      chatMode: 'build'
     });
+
     const processedResponse = await this.processClaudeResponse(response);
     await this.appManagementService.addMessage(
       conversationId,
@@ -58,19 +106,98 @@ export class ClaudeCodeService {
     return { app, conversationId };
   }
 
-  async continueConversation(conversationId: number, userMessage: string): Promise<string> {
+  async continueConversation(conversationId: number, userMessage: string, chatMode: 'build' | 'ask' = 'build'): Promise<string> {
     await this.appManagementService.addMessage(conversationId, 'user', userMessage);
     const conversation = await this.appManagementService.getConversation(conversationId);
-    const context = conversation?.messages?.map((m) => `${m.role}: ${m.content}`).join('\n') || '';
-    const response = await this.executePrompt(userMessage, { context });
+    
+    if (!conversation?.appId) {
+      throw new Error('No app associated with this conversation');
+    }
+
+    // Get the app and extract codebase (like CCdyad)
+    const app = await this.appManagementService.getApp(conversation.appId);
+    if (!app) {
+      throw new Error('App not found');
+    }
+
+    // Get app path
+    const desktopPath = await window.electronAPI.app.getDesktopPath();
+    const prestigePath = await window.electronAPI.path.join(desktopPath, 'prestige-ai');
+    const appPath = await window.electronAPI.path.join(prestigePath, app.path);
+
+    // Extract full codebase context (like CCdyad)
+    const { formattedOutput: codebaseInfo } = await this.codebaseService.extractCodebase(appPath);
+    console.log(`Extracted codebase information from ${appPath}`, 
+                `codebase length: ${codebaseInfo.length}, estimated tokens: ${codebaseInfo.length / 4}`);
+
+    // Limit chat history by turns (like CCdyad) - max 10 turns
+    const maxChatTurns = 10;
+    const limitedHistory = this.messageProcessor.limitChatHistory(conversation.messages || [], maxChatTurns);
+
+    // Prepare chat messages with codebase prefix (like CCdyad)
+    const chatMessages = this.messageProcessor.prepareChatMessages(codebaseInfo, limitedHistory, chatMode);
+
+    // Use the new message-based execution
+    const response = await this.executeWithMessages(chatMessages, { 
+      cwd: appPath,
+      chatMode
+    });
+
     return response;
+  }
+
+  async executeWithMessages(messages: CoreMessage[], options: { cwd?: string; chatMode?: 'build' | 'ask' } = {}): Promise<string> {
+    if (!this.isAvailable) {
+      throw new Error('Claude Code CLI is not available.');
+    }
+
+    // Convert messages to a single prompt format for Claude Code CLI
+    const conversationPrompt = this.formatMessagesForClaudeCode(messages, options.chatMode);
+
+    if (this.isElectron) {
+      try {
+        return await (window as any).electronAPI.claudeCode.execute(conversationPrompt, {
+          cwd: options.cwd
+        });
+      } catch (error) {
+        if (error instanceof Error && (error.message.includes('limit reached') || error.message.includes('exit code 1'))) {
+          return this.simulateClaudeCodeResponse(conversationPrompt);
+        }
+        throw error;
+      }
+    }
+    return this.simulateClaudeCodeResponse(conversationPrompt);
+  }
+
+  private formatMessagesForClaudeCode(messages: CoreMessage[], chatMode: 'build' | 'ask' = 'build'): string {
+    // Format conversation in a way Claude Code can understand
+    let prompt = `You are Prestige AI, an AI editor that creates and modifies web applications. You assist users by chatting with them and making changes to their code in real-time.\n\n`;
+    
+    if (chatMode === 'ask') {
+      prompt += `You are in "ask" mode - provide explanations and guidance without making code changes. Do not use any prestige-write, prestige-edit, or prestige-delete tags.\n\n`;
+    } else {
+      prompt += `You are in "build" mode - you can make changes to the codebase using prestige-write, prestige-edit, and prestige-delete tags.\n\n`;
+    }
+
+    // Add the conversation
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      const role = message.role.charAt(0).toUpperCase() + message.role.slice(1);
+      prompt += `${role}: ${message.content}\n\n`;
+    }
+
+    // Add final instruction
+    prompt += `Assistant: `;
+
+    return prompt;
   }
 
   async executePrompt(prompt: string, options: ExecuteOptions = {}): Promise<string> {
     if (!this.isAvailable) {
       throw new Error('Claude Code CLI is not available.');
     }
-    let transformedPrompt = this.transformPromptForClaudeCode(prompt);
+    const mode = options.mode || 'edit';
+    let transformedPrompt = this.transformPromptForClaudeCode(prompt, mode);
     if (options.context) {
       transformedPrompt = `${options.context}\n\n${transformedPrompt}`;
     }
@@ -88,10 +215,22 @@ export class ClaudeCodeService {
     return this.simulateClaudeCodeResponse(transformedPrompt);
   }
 
-  transformPromptForClaudeCode(prompt: string): string {
+  transformPromptForClaudeCode(prompt: string, mode: 'create' | 'edit' | 'fix' = 'edit'): string {
     let transformed = prompt.replace(/Prestige-AI/g, 'this development environment');
     transformed = transformed.replace(/You are an AI assistant/g, 'You are helping with development');
-    return `You are working in a development environment. Please help with the following request and create any necessary files or code as requested:\n\n${transformed}`;
+    
+    // Different prompt prefixes based on mode
+    switch (mode) {
+      case 'create':
+        return `You are working in a development environment. Please create a new application with the following requirements. Generate all necessary files and implement the complete functionality:\n\n${transformed}`;
+      
+      case 'fix':
+        return `You are working on an existing application that has errors. Please analyze the errors and fix them with minimal changes. Only modify the specific files and lines that are causing the issues:\n\n${transformed}`;
+      
+      case 'edit':
+      default:
+        return `You are working on an existing application. Please make the requested changes to the existing codebase. Make incremental updates without recreating the entire application:\n\n${transformed}`;
+    }
   }
 
   async processClaudeResponse(response: string): Promise<ProcessedResponse> {

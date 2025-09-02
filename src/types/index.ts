@@ -64,6 +64,7 @@ export interface ExecuteOptions {
   timeout?: number;
   env?: Record<string, string>;
   context?: string;
+  mode?: 'create' | 'edit' | 'fix';
 }
 
 export interface ProcessedResponse {

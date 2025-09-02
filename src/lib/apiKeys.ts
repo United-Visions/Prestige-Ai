@@ -31,6 +31,8 @@ interface ApiKeyStore {
     claudeCodeAvailable: boolean;
     version?: string;
     lastChecked?: Date;
+    hasUsageLimit?: boolean;
+    error?: string;
   };
   
   // Actions
@@ -53,6 +55,7 @@ export const useApiKeyStore = create<ApiKeyStore>()(
       apiKeyStatuses: {} as Record<ModelProvider, ApiKeyStatus>,
       cliStatus: {
         claudeCodeAvailable: false,
+        hasUsageLimit: false,
       },
 
       setApiKey: (provider, key) => {
@@ -172,27 +175,65 @@ export const useApiKeyStore = create<ApiKeyStore>()(
 
       checkClaudeCodeCli: async () => {
         try {
-          // In a browser environment, we can't actually check for CLI
-          // This would need to be done through an API or backend service
-          // For now, we'll simulate this check
+          let cliAvailable = false;
+          let version = undefined;
+          let hasUsageLimit = false;
+          let error = undefined;
           
-          const cliAvailable = false; // Would be determined by actual CLI check
-          const version = undefined; // Would get actual version
+          // Check if we're in Electron environment
+          if (typeof window !== 'undefined' && (window as any).electronAPI) {
+            // Try the new enhanced status check first
+            if ((window as any).electronAPI.claudeCode.checkStatus) {
+              const status = await (window as any).electronAPI.claudeCode.checkStatus();
+              cliAvailable = status.available;
+              hasUsageLimit = status.hasUsageLimit;
+              error = status.error;
+              
+              // If available, try to get version
+              if (cliAvailable) {
+                try {
+                  version = hasUsageLimit ? 'limited' : 'ready';
+                } catch (versionError) {
+                  console.warn('Could not get Claude Code version:', versionError);
+                  version = 'detected';
+                }
+              }
+            } else {
+              // Fallback to old method
+              console.log('Using fallback Claude Code detection');
+              cliAvailable = await (window as any).electronAPI.claudeCode.checkAvailability();
+              hasUsageLimit = false; // Can't detect with old method
+              if (cliAvailable) {
+                version = 'detected';
+              }
+            }
+          }
           
           set(() => ({
             cliStatus: {
               claudeCodeAvailable: cliAvailable,
               version,
               lastChecked: new Date(),
+              hasUsageLimit,
+              error,
             },
           }));
           
+          console.log('Claude Code CLI Status:', {
+            cliAvailable,
+            version,
+            hasUsageLimit,
+            error
+          });
+          
           return cliAvailable;
         } catch (error) {
+          console.error('Error checking Claude Code CLI:', error);
           set(() => ({
             cliStatus: {
               claudeCodeAvailable: false,
               lastChecked: new Date(),
+              error: 'Failed to check Claude Code CLI',
             },
           }));
           return false;

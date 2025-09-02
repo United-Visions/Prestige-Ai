@@ -3,11 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
 import { AppError, AppOutput } from '@/types/appTypes';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
+import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetectionService';
 
 interface CodeViewerPanelProps {
   className?: string;
@@ -22,7 +23,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     setActiveTab
   } = useCodeViewerStore();
 
-  const { currentApp } = useAppStore();
+  const { currentApp, selectedModel } = useAppStore();
 
   const [isExpanded, setIsExpanded] = useState(false);
   const activeTab = storeActiveTab;
@@ -36,8 +37,11 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
   const [errors, setErrors] = useState<AppError[]>([]);
   const [showLogs, setShowLogs] = useState(true); // Start with logs visible by default
   const [iframeKey, setIframeKey] = useState(0);
+  const [errorReport, setErrorReport] = useState<ErrorReport | null>(null);
+  const [isFixingErrors, setIsFixingErrors] = useState(false);
 
   const appService = AdvancedAppManagementService.getInstance();
+  const errorService = ErrorDetectionService.getInstance();
 
   useEffect(() => {
     // Reset expansion state when a new file is selected
@@ -70,7 +74,17 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     setOutputs(prev => {
       // Limit output history to prevent memory issues (keep last 1000 entries)
       const newOutputs = [...prev, output];
-      return newOutputs.length > 1000 ? newOutputs.slice(-1000) : newOutputs;
+      const limitedOutputs = newOutputs.length > 1000 ? newOutputs.slice(-1000) : newOutputs;
+      
+      // Update error report when outputs change (debounced)
+      if (currentApp?.id && output.type === 'stderr') {
+        setTimeout(() => {
+          const report = errorService.createErrorReport(limitedOutputs, errors);
+          setErrorReport(report);
+        }, 1000); // Debounce error detection for outputs
+      }
+      
+      return limitedOutputs;
     });
     
     // Check for proxy server start message
@@ -90,7 +104,17 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     setErrors(prev => {
       // Limit error history to prevent memory issues (keep last 100 entries)
       const newErrors = [...prev, error];
-      return newErrors.length > 100 ? newErrors.slice(-100) : newErrors;
+      const limitedErrors = newErrors.length > 100 ? newErrors.slice(-100) : newErrors;
+      
+      // Update error report when errors change
+      if (currentApp?.id) {
+        setTimeout(() => {
+          const report = errorService.createErrorReport(outputs, limitedErrors);
+          setErrorReport(report);
+        }, 500); // Debounce error detection
+      }
+      
+      return limitedErrors;
     });
   };
 
@@ -260,6 +284,107 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
         setIsStarting(false);
       }
     }, 0);
+  };
+
+  const autoFixErrors = async () => {
+    if (!currentApp?.id || !errorReport?.hasErrors) return;
+    
+    setIsFixingErrors(true);
+    
+    try {
+      // Use the currently selected model instead of hardcoding Claude Code
+      if (selectedModel.provider === 'claude-code' || (selectedModel.provider === 'auto' && selectedModel.name === 'Claude Code')) {
+        // Only use ClaudeCodeService if Claude Code is specifically selected
+        const { ClaudeCodeService } = await import('@/services/claudeCodeService');
+        const claudeService = ClaudeCodeService.getInstance();
+        
+        // Get the current conversation for this app
+        const conversations = await appService.getAppConversations(currentApp.id);
+        const activeConversation = conversations[0]; // Get the most recent conversation
+        
+        if (activeConversation) {
+          const fixPrompt = errorService.generateErrorFixPrompt(errorReport);
+          console.log('Auto-fix prompt (Claude Code):', fixPrompt);
+          
+          // Send the fix prompt using Claude Code service
+          const response = await claudeService.continueConversation(activeConversation.id, fixPrompt, 'build');
+          
+          // Process the response to apply file changes
+          const { processAgentResponse } = await import('@/services/agentResponseProcessor');
+          await processAgentResponse(response);
+          
+          // Clear error report after successful fix attempt
+          setErrorReport(null);
+          showToast('Attempted to fix errors using Claude Code. Check the logs for results.', 'info');
+        } else {
+          showToast('No active conversation found for this app', 'error');
+        }
+      } else {
+        // Use the standard AI model service for other models
+        const { aiModelService } = await import('@/services/aiModelService');
+        const { constructSystemPrompt, readAiRules } = await import('@/prompts/system_prompt');
+        
+        // Get the current conversation for this app
+        const conversations = await appService.getAppConversations(currentApp.id);
+        const activeConversation = conversations[0]; // Get the most recent conversation
+        
+        if (activeConversation) {
+          // Build the system prompt with current app context
+          const aiRules = await readAiRules(currentApp.path);
+          let fileStructure = '';
+          if (currentApp.files && currentApp.files.length > 0) {
+            fileStructure = currentApp.files
+              .map(file => file.type === 'directory' ? `${file.path}/` : file.path)
+              .sort()
+              .join('\n');
+          }
+          const systemPrompt = constructSystemPrompt({ aiRules, fileStructure });
+          
+          const fixPrompt = errorService.generateErrorFixPrompt(errorReport);
+          console.log('Auto-fix prompt (Other models):', fixPrompt);
+          
+          // Get conversation messages for context
+          const fullConversation = await appService.getConversation(activeConversation.id);
+          const messages = fullConversation?.messages || [];
+          
+          // Add the fix prompt as a user message
+          const conversationMessages = [...messages, {
+            id: Date.now(),
+            content: fixPrompt,
+            role: 'user' as const,
+            createdAt: new Date(),
+            conversationId: activeConversation.id
+          }];
+          
+          // Generate response using the selected model
+          const response = await aiModelService.generateResponse(
+            selectedModel,
+            systemPrompt,
+            conversationMessages
+          );
+          
+          // Process the response to apply file changes
+          const { processAgentResponse } = await import('@/services/agentResponseProcessor');
+          const agentResult = await processAgentResponse(response);
+          
+          // Add the fix prompt and response to the conversation
+          await appService.addMessageToConversation(activeConversation.id, 'user', fixPrompt);
+          const responseContent = agentResult?.chatContent || response;
+          await appService.addMessageToConversation(activeConversation.id, 'assistant', responseContent);
+          
+          // Clear error report after successful fix attempt
+          setErrorReport(null);
+          showToast(`Attempted to fix errors using ${selectedModel.name}. Check the logs for results.`, 'info');
+        } else {
+          showToast('No active conversation found for this app', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to auto-fix errors:', error);
+      showToast('Failed to auto-fix errors: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+    } finally {
+      setIsFixingErrors(false);
+    }
   };
 
   if (!isVisible || !selectedFile) {
@@ -469,6 +594,20 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                       Rebuild
                     </Button>
                   </>
+                )}
+                
+                {errorReport?.hasErrors && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={autoFixErrors}
+                    disabled={isFixingErrors}
+                    className="h-8 px-3 text-orange-600 hover:text-orange-700"
+                    title={`Fix ${errorReport.buildErrors.length + errorReport.runtimeErrors.length} error(s) automatically`}
+                  >
+                    <AlertTriangle className="w-4 h-4 mr-1" />
+                    {isFixingErrors ? 'Fixing...' : `Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
+                  </Button>
                 )}
                 
                 {appUrl && (

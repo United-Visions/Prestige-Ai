@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Message, App, Conversation, ModelProvider } from '@/types';
+import type { Message, App, Conversation } from '@/types';
+import { LargeLanguageModel, DEFAULT_MODEL } from '@/lib/models';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 
 interface AppState {
@@ -8,10 +9,9 @@ interface AppState {
   currentApp: App | null;
   currentConversation: Conversation | null;
   currentAppConversations: Conversation[];
-  selectedModel: string;
+  selectedModel: LargeLanguageModel;
   isGenerating: boolean;
   error: string | null;
-  availableModels: ModelProvider[];
   chatSummary: string | null;
 
   // Actions
@@ -25,11 +25,10 @@ interface AppState {
   deleteApp: (appId: number) => Promise<void>;
   deleteConversation: (conversationId: number) => Promise<void>;
   renameApp: (appId: number, newName: string) => Promise<void>;
-  setSelectedModel: (modelId: string) => void;
+  setSelectedModel: (model: LargeLanguageModel) => void;
   setChatSummary: (summary: string | null) => void;
   setIsGenerating: (isGenerating: boolean) => void;
   setError: (error: string | null) => void;
-  setAvailableModels: (models: ModelProvider[]) => void;
 }
 
 const useAppStore = create<AppState>()(
@@ -40,19 +39,10 @@ const useAppStore = create<AppState>()(
       currentApp: null,
       currentConversation: null,
       currentAppConversations: [],
-      selectedModel: 'claude-code',
+      selectedModel: DEFAULT_MODEL,
       isGenerating: false,
       error: null,
       chatSummary: null,
-      availableModels: [
-        {
-          id: 'claude-code',
-          name: 'Claude Code Max',
-          description: 'Premium AI assistant with advanced code understanding and tool access',
-          type: 'cli',
-          isAvailable: false,
-        },
-      ],
       
       // Actions
       loadApps: async () => {
@@ -213,8 +203,8 @@ const useAppStore = create<AppState>()(
         await get().loadApps();
       },
 
-      setSelectedModel: (modelId: string) => {
-        set({ selectedModel: modelId });
+      setSelectedModel: (model: LargeLanguageModel) => {
+        set({ selectedModel: model });
       },
 
       setChatSummary: (summary: string | null) => {
@@ -227,10 +217,6 @@ const useAppStore = create<AppState>()(
       
       setError: (error: string | null) => {
         set({ error });
-      },
-      
-      setAvailableModels: (models: ModelProvider[]) => {
-        set({ availableModels: models });
       },
     }),
     {

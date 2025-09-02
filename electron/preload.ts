@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeCode: {
     checkAvailability: (): Promise<boolean> => 
       ipcRenderer.invoke('claude-code:check-availability'),
+    checkStatus: (): Promise<{ available: boolean; hasUsageLimit: boolean; error?: string }> => 
+      ipcRenderer.invoke('claude-code:check-status'),
     execute: (prompt: string, options?: { cwd?: string }): Promise<string> => 
       ipcRenderer.invoke('claude-code:execute', prompt, options),
   },
