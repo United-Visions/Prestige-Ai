@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { FileTreeView } from '../project/FileTreeView';
 import { EnhancedModelPicker } from '@/components/EnhancedModelPicker';
 import { ApiKeyDialog } from '@/components/ApiKeyDialog';
 import { TemplateSelector } from '@/components/TemplateSelector';
@@ -79,7 +78,8 @@ export function ChatInterface() {
   const getSystemPrompt = useCallback(async () => {
     if (!currentApp) return constructSystemPrompt({ aiRules: undefined });
     
-    const aiRules = await readAiRules(currentApp.path);
+  // Pass stored app.path (relative app name); readAiRules will resolve to prestige-ai/<app>/files
+  const aiRules = await readAiRules(currentApp.path);
     
     // Generate file structure for context
     let fileStructure = '';
@@ -158,7 +158,8 @@ export function ChatInterface() {
           });
         }
       } else if (!currentConversation) {
-        const newConversation = await createConversation(currentApp.id, content);
+        // If a conversation does not exist yet for this app, we create one implicitly using the first user message as initial message
+        const newConversation = await createConversation(currentApp.id, undefined, 'Conversation');
         conversationId = newConversation.id;
         currentMessages = newConversation.messages || [];
         
@@ -608,16 +609,7 @@ export function ChatInterface() {
         </div>
       </div>
 
-      {/* Project Sidebar */}
-      {currentApp && (
-        <div className="w-80 border-l bg-card">
-          <div className="p-4 border-b">
-            <h3 className="font-semibold">Project Files</h3>
-            <p className="text-sm text-muted-foreground">{currentApp.name}</p>
-          </div>
-          <FileTreeView files={currentApp.files || []} />
-        </div>
-      )}
+      {/* Project Files sidebar removed per user request */}
 
 
       {/* API Key Dialog */}

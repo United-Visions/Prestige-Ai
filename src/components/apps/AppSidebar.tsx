@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import useAppStore from '@/stores/appStore';
 import { useAIStore } from '@/store/aiStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
@@ -23,10 +24,26 @@ export function AppSidebar() {
 
   const { showPreviewMode } = useCodeViewerStore();
 
-  const handleNewConversation = () => {
-    if (currentApp) {
-      createConversation(currentApp.id, 'New conversation');
-    }
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [newConversationTitle, setNewConversationTitle] = useState('');
+
+  const startNewConversation = () => {
+    if (!currentApp) return;
+    setIsCreatingConversation(true);
+    setNewConversationTitle('');
+  };
+
+  const cancelNewConversation = () => {
+    setIsCreatingConversation(false);
+    setNewConversationTitle('');
+  };
+
+  const submitNewConversation = async () => {
+    if (!currentApp) return;
+    const title = newConversationTitle.trim() || 'Untitled Conversation';
+    await createConversation(currentApp.id, undefined, title);
+    setIsCreatingConversation(false);
+    setNewConversationTitle('');
   };
 
   const handleCreateNewApp = () => {
@@ -82,11 +99,36 @@ export function AppSidebar() {
           ))}
         </div>
         
-        <div className="p-4 border-t">
-          <Button onClick={handleNewConversation} className="w-full">
-            <PlusCircle className="w-4 h-4 mr-2" />
-            New Conversation
-          </Button>
+        <div className="p-4 border-t space-y-2">
+          {!isCreatingConversation && (
+            <Button onClick={startNewConversation} className="w-full">
+              <PlusCircle className="w-4 h-4 mr-2" />
+              New Conversation
+            </Button>
+          )}
+          {isCreatingConversation && (
+            <div className="space-y-2">
+              <input
+                autoFocus
+                className="w-full px-2 py-1 text-sm border rounded bg-background"
+                placeholder="Conversation title"
+                value={newConversationTitle}
+                onChange={(e) => setNewConversationTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitNewConversation();
+                  if (e.key === 'Escape') cancelNewConversation();
+                }}
+              />
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1" onClick={submitNewConversation}>
+                  Create
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1" onClick={cancelNewConversation}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

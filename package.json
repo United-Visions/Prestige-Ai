@@ -71,7 +71,7 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
-    "@types/node": "^20.8.0",
+    "@types/node": "^20.19.11",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
@@ -91,6 +91,7 @@
     "vite": "^4.4.5",
     "vite-plugin-electron": "^0.15.5",
     "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^3.2.4",
     "wait-on": "^7.2.0"
   },
   "build": {

@@ -19,7 +19,7 @@ interface AppState {
   createApp: (prompt: string) => Promise<{ app: App, conversationId: number }>;
   setCurrentApp: (app: App | null) => void;
   refreshCurrentApp: () => Promise<void>;
-  createConversation: (appId: number, initialMessage: string) => Promise<Conversation>;
+  createConversation: (appId: number, initialMessage?: string, titleOverride?: string) => Promise<Conversation>;
   setCurrentConversation: (conversation: Conversation | null) => void;
   addMessage: (conversationId: number, message: Omit<Message, 'id' | 'timestamp' | 'conversationId'>) => Promise<void>;
   deleteApp: (appId: number) => Promise<void>;
@@ -128,21 +128,32 @@ const useAppStore = create<AppState>()(
         }
       },
       
-      createConversation: async (appId: number, initialMessage: string) => {
-        set({ isGenerating: true, error: null });
+      createConversation: async (appId: number, initialMessage?: string, titleOverride?: string) => {
+        // Only show generating indicator if we actually have an initial message (which would seed context)
+        if (initialMessage && initialMessage.trim()) {
+          set({ isGenerating: true, error: null });
+        } else {
+          set({ error: null });
+        }
         try {
           const appService = AdvancedAppManagementService.getInstance();
-          const conversationId = await appService.createConversation({ appId, initialMessage });
+          const conversationId = await appService.createConversation({ appId, initialMessage, titleOverride });
           const conversation = await appService.getConversation(conversationId);
           if (!conversation) {
             throw new Error('Failed to create or retrieve conversation.');
           }
           
           const conversations = await appService.getAppConversations(appId);
-          set({ 
+          set((state) => ({ 
             currentConversation: conversation, 
             currentAppConversations: conversations,
-          });
+            // Ensure we are not stuck in generating state after creating an empty conversation
+            isGenerating: initialMessage && initialMessage.trim() ? state.isGenerating : false
+          }));
+          // If we set isGenerating earlier due to initialMessage, clear it now (no AI call here)
+          if (initialMessage && initialMessage.trim()) {
+            set({ isGenerating: false });
+          }
           return conversation;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to create conversation';

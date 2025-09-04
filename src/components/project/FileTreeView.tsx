@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { FileNode } from '@/types';
-import { ChevronRight, ChevronDown, File, Folder, Download, Eye, Loader } from 'lucide-react';
+import { ChevronRight, ChevronDown, File, Folder, Download, Loader } from 'lucide-react';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { FileSystemService } from '@/services/fileSystemService';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 import useAppStore from '@/stores/appStore';
 
 interface FileTreeViewProps {
@@ -17,21 +18,20 @@ interface FileItemProps {
 
 function FileItem({ node, depth }: FileItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { showCodeViewer } = useCodeViewerStore();
   const { currentApp } = useAppStore();
 
-  const handleToggle = () => {
+  const handleToggle = async () => {
     if (node.type === 'directory') {
       setIsExpanded(!isExpanded);
     } else {
-      setSelectedFile(selectedFile === node.path ? null : node.path);
+      // For files, directly open in code viewer
+      await handleOpenInViewer();
     }
   };
 
-  const handleOpenInViewer = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleOpenInViewer = async () => {
     if (node.type === 'file') {
       if (node.content) {
         // File already has content, show it directly
@@ -42,10 +42,8 @@ function FileItem({ node, depth }: FileItemProps) {
         try {
           const fileService = FileSystemService.getInstance();
           // Build the correct full path: ~/Desktop/prestige-ai/{app-name}/files/{file-path}
-          const desktopPath = await window.electronAPI.app.getDesktopPath();
-          const prestigePath = await window.electronAPI.path.join(desktopPath, 'prestige-ai');
-          const appName = currentApp?.path || '';
-          const fullPath = await window.electronAPI.path.join(prestigePath, appName, 'files', node.path);
+          const { filesPath } = currentApp ? await resolveAppPaths(currentApp) : { filesPath: '' };
+          const fullPath = currentApp ? await window.electronAPI.path.join(filesPath, node.path) : node.path;
           const content = await fileService.readFile(fullPath);
           
           // Create a new node with content
@@ -70,25 +68,10 @@ function FileItem({ node, depth }: FileItemProps) {
     }
   };
 
-  const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (node.content) {
-      const blob = new Blob([node.content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = node.name;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  };
-
   return (
     <div>
       <div
-        className={`flex items-center gap-2 px-2 py-1 hover:bg-accent rounded cursor-pointer ${
-          selectedFile === node.path ? 'bg-accent' : ''
-        }`}
+        className="flex items-center gap-2 px-2 py-1 hover:bg-accent rounded cursor-pointer"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleToggle}
       >
@@ -110,34 +93,8 @@ function FileItem({ node, depth }: FileItemProps) {
         
         <span className="flex-1 text-sm">{node.name}</span>
         
-        {node.type === 'file' && (
-          <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleOpenInViewer}
-              disabled={isLoading}
-              className="h-6 w-6 p-0"
-              title="Open in code viewer"
-            >
-              {isLoading ? (
-                <Loader className="w-3 h-3 animate-spin" />
-              ) : (
-                <Eye className="w-3 h-3" />
-              )}
-            </Button>
-            {node.content && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDownload}
-                className="h-6 w-6 p-0"
-                title="Download file"
-              >
-                <Download className="w-3 h-3" />
-              </Button>
-            )}
-          </div>
+        {node.type === 'file' && isLoading && (
+          <Loader className="w-3 h-3 animate-spin text-gray-400" />
         )}
       </div>
 
@@ -146,23 +103,6 @@ function FileItem({ node, depth }: FileItemProps) {
           {node.children.map((child) => (
             <FileItem key={child.path} node={child} depth={depth + 1} />
           ))}
-        </div>
-      )}
-
-      {node.type === 'file' && selectedFile === node.path && node.content && (
-        <div 
-          className="mx-2 mb-2 p-3 bg-background border rounded"
-          style={{ marginLeft: `${(depth + 1) * 16 + 8}px` }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium">{node.name}</span>
-            <span className="text-xs text-muted-foreground">
-              {node.content.length} chars
-            </span>
-          </div>
-          <pre className="text-xs overflow-x-auto max-h-48 overflow-y-auto">
-            <code>{node.content}</code>
-          </pre>
         </div>
       )}
     </div>

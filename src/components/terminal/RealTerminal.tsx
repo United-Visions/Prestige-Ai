@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Terminal as TerminalIcon, X, RefreshCw, Copy, AlertTriangle } from 'lucide-react';
 import useAppStore from '@/stores/appStore';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetectionService';
 import { showToast } from '@/utils/toast';
 
@@ -157,9 +158,12 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
     try {
       console.log('🚀 Starting shell process for app:', currentApp.name);
 
+      // Resolve absolute path to app root (not the files subfolder) inside prestige-ai directory
+      const { appRoot: absoluteAppPath } = await resolveAppPaths(currentApp);
+
       // Create terminal session using Electron API
       const sessionResult = await window.electronAPI?.terminal.createSession({
-        cwd: currentApp.path,
+        cwd: absoluteAppPath,
         cols: terminal.cols,
         rows: terminal.rows,
         appId: currentApp.id,
@@ -167,9 +171,9 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         env: {
           PRESTIGE_APP_ID: currentApp.id.toString(),
           PRESTIGE_APP_NAME: currentApp.name,
-          PRESTIGE_APP_PATH: currentApp.path,
-          CLAUDE_CODE_WORKING_DIR: currentApp.path,
-          PWD: currentApp.path
+          PRESTIGE_APP_PATH: absoluteAppPath,
+          CLAUDE_CODE_WORKING_DIR: absoluteAppPath,
+          PWD: absoluteAppPath
         }
       });
 
@@ -253,7 +257,7 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
       terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n\r\n');
 
       // Check Claude Code availability
-      const isClaudeAvailable = await window.electronAPI?.terminal.checkClaudeAvailability();
+  const isClaudeAvailable = await window.electronAPI?.terminal.checkClaudeAvailability();
       if (!isClaudeAvailable) {
         terminal.write('\x1b[1;31m⚠ Warning: Claude Code CLI not found in PATH\x1b[0m\r\n');
         terminal.write('\x1b[1;33mTip: Install Claude Code CLI to use direct commands\x1b[0m\r\n\r\n');

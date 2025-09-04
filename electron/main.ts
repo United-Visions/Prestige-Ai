@@ -465,7 +465,8 @@ ipcMain.on('fs:exists-sync', (event, path: string) => {
 ipcMain.handle('fs:read-file', async (event, filePath: string): Promise<string> => {
   const fs = require('fs').promises;
   try {
-    return await fs.promises.readFile(filePath, 'utf8');
+    // fs is already the promises API object, so call readFile directly
+    return await fs.readFile(filePath, 'utf8');
   } catch (error) {
     throw new Error(`Failed to read file ${filePath}: ${error}`);
   }

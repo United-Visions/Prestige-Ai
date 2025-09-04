@@ -9,7 +9,8 @@ export interface CreateAppParams {
 
 export interface CreateConversationParams {
   appId: number;
-  initialMessage: string;
+  initialMessage?: string; // optional; if provided used to derive title and first message
+  titleOverride?: string;  // optional explicit title
 }
 
 export class AdvancedAppManagementService {
@@ -250,8 +251,17 @@ export class AdvancedAppManagementService {
         throw new Error('App not found');
       }
 
-      // Generate conversation title
-      const title = await this.fileSystemService.generateConversationTitle(params.initialMessage);
+      // Determine title
+      let title: string;
+      if (params.titleOverride && params.titleOverride.trim()) {
+        title = params.titleOverride.trim();
+      } else if (params.initialMessage && params.initialMessage.trim()) {
+        title = await this.fileSystemService.generateConversationTitle(params.initialMessage);
+      } else {
+        // Fallback generic title with timestamp
+        const ts = new Date();
+        title = `Conversation ${ts.getHours().toString().padStart(2,'0')}:${ts.getMinutes().toString().padStart(2,'0')}`;
+      }
 
       // Create conversation
       const conversationId = await window.electronAPI.db.createConversation({
@@ -259,12 +269,14 @@ export class AdvancedAppManagementService {
         title: title,
       });
 
-      // Add initial message
-      await window.electronAPI.db.addMessage({
-        conversationId,
-        role: 'user',
-        content: params.initialMessage,
-      });
+      // Add initial message only if provided
+      if (params.initialMessage && params.initialMessage.trim()) {
+        await window.electronAPI.db.addMessage({
+          conversationId,
+          role: 'user',
+          content: params.initialMessage,
+        });
+      }
 
       console.log(`✅ Created conversation "${title}" for app "${app.name}"`);
       

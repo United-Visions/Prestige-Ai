@@ -3,9 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send, Folder } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
+import { FileTreeView } from '@/components/project/FileTreeView';
 import { AppError, AppOutput } from '@/types/appTypes';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetectionService';
@@ -20,7 +21,9 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     selectedFile, 
     hideCodeViewer,
     activeTab: storeActiveTab,
-    setActiveTab
+    setActiveTab,
+    showFileTree,
+    setShowFileTree
   } = useCodeViewerStore();
 
   const { currentApp, selectedModel } = useAppStore();
@@ -49,6 +52,11 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
       setIsExpanded(false);
     }
   }, [selectedFile]);
+  
+  // Debug log to track file tree state
+  useEffect(() => {
+    console.log('File tree visibility changed:', showFileTree);
+  }, [showFileTree]);
 
   useEffect(() => {
     // Clear preview state immediately when switching apps
@@ -330,6 +338,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
         
         if (activeConversation) {
           // Build the system prompt with current app context
+          // Defensive: ensure we pass either absolute 'files' directory or app name; readAiRules will normalize
           const aiRules = await readAiRules(currentApp.path);
           let fileStructure = '';
           if (currentApp.files && currentApp.files.length > 0) {
@@ -402,7 +411,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     showToast(`Prepared error summary for terminal. Switch to terminal mode and type "fix-errors".`, 'success');
   };
 
-  if (!isVisible || !selectedFile) {
+  if (!isVisible) {
     return null;
   }
 
@@ -490,16 +499,27 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 border-b">
           <div className="flex items-center gap-4">
             <div className="flex flex-col">
-              <h3 className="text-lg font-semibold">{selectedFile.name}</h3>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>{selectedFile.path}</span>
-                <span>•</span>
-                <span>{getLineCount(selectedFile.content || '')} lines</span>
-                <span>•</span>
-                <span>{formatFileSize(selectedFile.content || '')}</span>
-                <span>•</span>
-                <span className="capitalize">{getLanguageFromExtension(selectedFile.name)}</span>
-              </div>
+              <h3 className="text-lg font-semibold">
+                {selectedFile ? selectedFile.name : (currentApp ? currentApp.name : 'Code Viewer')}
+              </h3>
+              {selectedFile && (
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{selectedFile.path}</span>
+                  <span>•</span>
+                  <span>{getLineCount(selectedFile.content || '')} lines</span>
+                  <span>•</span>
+                  <span>{formatFileSize(selectedFile.content || '')}</span>
+                  <span>•</span>
+                  <span className="capitalize">{getLanguageFromExtension(selectedFile.name)}</span>
+                </div>
+              )}
+              {!selectedFile && currentApp && (
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{currentApp.files?.length || 0} files</span>
+                  <span>•</span>
+                  <span>Project files</span>
+                </div>
+              )}
             </div>
             
             {/* Tabs */}
@@ -534,24 +554,44 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
           <div className="flex items-center gap-2">
             {activeTab === 'code' && (
               <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCopy}
-                  className="h-8 w-8 p-0"
-                  title="Copy to clipboard"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
+                {selectedFile && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopy}
+                      className="h-8 w-8 p-0"
+                      title="Copy to clipboard"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDownload}
+                      className="h-8 w-8 p-0"
+                      title="Download file"
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
                 
+                {/* File tree action buttons */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleDownload}
-                  className="h-8 w-8 p-0"
-                  title="Download file"
+                  onClick={() => {
+                    const newState = !showFileTree;
+                    console.log('Files button clicked. Current state:', showFileTree, 'New state:', newState);
+                    setShowFileTree(newState);
+                  }}
+                  className={`h-8 px-3 ${showFileTree ? 'bg-blue-100 text-blue-700' : ''}`}
+                  title="Toggle File Tree"
                 >
-                  <Download className="w-4 h-4" />
+                  <Folder className="w-4 h-4 mr-1" />
+                  Files
                 </Button>
               </>
             )}
@@ -691,14 +731,56 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
         
         <CardContent className="p-0 h-full overflow-hidden">
           <div className="h-full flex flex-col">
-            {/* Code Tab Content */}
+            {/* Code Tab Content - Code viewer with file tree on the right */}
             {activeTab === 'code' && (
-              <div className="flex-1 h-full overflow-auto">
-                <pre className="p-4 text-sm font-mono leading-relaxed overflow-auto h-full">
-                  <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
-                    {selectedFile.content}
-                  </code>
-                </pre>
+              <div className="h-full flex">
+                {/* Code content area - takes main space like preview */}
+                {/* Added min-w-0 to allow flex item to shrink and not push file tree off-screen */}
+                <div className="flex-1 flex flex-col min-w-0">
+                  {selectedFile ? (
+                    <div className="h-full flex-1 min-w-0">
+                      <pre
+                        className={`p-4 text-sm font-mono leading-relaxed overflow-auto h-full bg-gray-50 w-full ${showFileTree ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} `}
+                      >
+                        <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
+                          {selectedFile.content}
+                        </code>
+                      </pre>
+                    </div>
+                  ) : !currentApp ? (
+                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                      <div className="text-center">
+                        <Folder className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                        <div className="text-lg font-medium">No App Selected</div>
+                        <div className="text-sm mt-2">Select an app to view its files</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                      <div className="text-center">
+                        <Folder className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                        <div className="text-lg font-medium">Select a File</div>
+                        <div className="text-sm mt-2">Choose a file from the tree to view its code</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* File tree sidebar - toggleable like logs panel */}
+                {currentApp && showFileTree && (
+                  <div className="w-1/3 border-l bg-gray-50 flex flex-col shrink-0">
+                    <div className="p-3 border-b bg-white">
+                      <h3 className="font-medium">Project Files</h3>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {currentApp.files?.length || 0} files
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 overflow-auto">
+                      <FileTreeView files={currentApp.files || []} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             

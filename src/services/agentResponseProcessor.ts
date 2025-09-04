@@ -3,6 +3,7 @@ const { path } = window.electronAPI;
 const { ensureFile, rename, remove, writeFile } = fs;
 import useAppStore from '@/stores/appStore';
 import { showSuccess, showError } from '@/utils/toast';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 
 interface FileOperation {
   type: 'write' | 'rename' | 'delete';
@@ -87,10 +88,8 @@ export async function processAgentResponse(response: string) {
     return { chatContent: response, chatSummary: '' };
   }
 
-  // Get the correct app path from the app's path property and add 'files' subdirectory
-  const desktopPath = await window.electronAPI.app.getDesktopPath();
-  const prestigePath = await path.join(desktopPath, 'prestige-ai');
-  const appPath = await path.join(prestigePath, currentApp.path, 'files');
+  // Resolve files directory path centrally
+  const { filesPath: appPath } = await resolveAppPaths(currentApp);
 
   let hasFileOperations = false;
 

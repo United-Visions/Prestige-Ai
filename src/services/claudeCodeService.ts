@@ -2,6 +2,7 @@ import type { ExecuteOptions, ProcessedResponse, FileOperation, App } from '@/ty
 import { AppManagementService } from './appManagementService';
 import { CodebaseExtractionService } from './codebaseExtractionService';
 import { MessageProcessingService, type CoreMessage } from './messageProcessingService';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 
 export class ClaudeCodeService {
   private static instance: ClaudeCodeService;
@@ -125,10 +126,8 @@ export class ClaudeCodeService {
       throw new Error('App not found');
     }
 
-    // Get app path
-    const desktopPath = await window.electronAPI.app.getDesktopPath();
-    const prestigePath = await window.electronAPI.path.join(desktopPath, 'prestige-ai');
-    const appPath = await window.electronAPI.path.join(prestigePath, app.path);
+  // Resolve absolute app root via shared utility
+  const { appRoot: appPath } = await resolveAppPaths(app);
 
     // Extract full codebase context (like CCdyad)
     const { formattedOutput: codebaseInfo } = await this.codebaseService.extractCodebase(appPath);
@@ -143,10 +142,7 @@ export class ClaudeCodeService {
     const chatMessages = this.messageProcessor.prepareChatMessages(codebaseInfo, limitedHistory, chatMode);
 
     // Use the new message-based execution
-    const response = await this.executeWithMessages(chatMessages, { 
-      cwd: appPath,
-      chatMode
-    });
+    const response = await this.executeWithMessages(chatMessages, { cwd: appPath, chatMode });
 
     return response;
   }

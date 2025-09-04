@@ -1,4 +1,15 @@
-const { path, fs } = window.electronAPI;
+// Support non-browser/test environments (Vitest) by guarding window access.
+// We fallback to minimal stubs so pure helper functions can be tested.
+// NOTE: Full functionality (filesystem access) requires Electron preload.
+const electronAPI = (typeof window !== 'undefined' && (window as any).electronAPI) ? (window as any).electronAPI : {
+  path: {
+    join: async (...parts: string[]) => parts.join('/').replace(/\/+/g, '/'),
+  },
+  fs: {
+    readFile: async (_p: string) => { throw new Error('fs.readFile not available in test fallback'); }
+  }
+};
+const { path, fs } = electronAPI;
 
 export const THINKING_PROMPT = `
 # Thinking Process
@@ -493,14 +504,40 @@ All shadcn/ui components and their dependencies are already installed and availa
 };
 
 export const readAiRules = async (appPath: string) => {
-  const aiRulesPath = await path.join(appPath, "AI_RULES.md");
   try {
+    // Normalize provided appPath to point to the actual 'files' directory that holds AI_RULES.md
+    let normalizedFilesPath = appPath;
+    const isAbsolute = /^([A-Za-z]:\\|\/)/.test(appPath);
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      const desktopPath = await (window as any).electronAPI.app.getDesktopPath();
+      const prestigeRoot = await (window as any).electronAPI.path.join(desktopPath, 'prestige-ai');
+
+      // If caller passed just the app name or a path that doesn't already include prestige-ai, rebuild it
+      if (!normalizedFilesPath.includes('prestige-ai')) {
+        // Treat input as app name
+        normalizedFilesPath = await (window as any).electronAPI.path.join(prestigeRoot, appPath);
+      } else if (!isAbsolute) {
+        // Make relative prestige path absolute
+        normalizedFilesPath = await (window as any).electronAPI.path.join(desktopPath, normalizedFilesPath);
+      }
+
+      // Ensure we target the 'files' subdirectory (scaffold lives there)
+      if (!/\/files\/?$/.test(normalizedFilesPath)) {
+        normalizedFilesPath = await (window as any).electronAPI.path.join(normalizedFilesPath, 'files');
+      }
+    } else {
+      // Web fallback: assume /Users/<user>/Desktop/prestige-ai/appName/files
+      if (!normalizedFilesPath.includes('/files')) {
+        normalizedFilesPath = normalizedFilesPath + '/files';
+      }
+    }
+
+    const aiRulesPath = await path.join(normalizedFilesPath, 'AI_RULES.md');
     const aiRules = await fs.readFile(aiRulesPath);
     return aiRules;
   } catch (error) {
-    console.info(
-      `Error reading AI_RULES.md, fallback to default AI rules: ${error}`,
-    );
+    console.info(`Error reading AI_RULES.md, fallback to default AI rules: ${error}`);
     return DEFAULT_AI_RULES;
   }
 };

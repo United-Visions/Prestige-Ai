@@ -7,6 +7,7 @@ interface CodeViewerState {
   selectedFile: FileNode | null;
   isAnimating: boolean;
   activeTab: string;
+  showFileTree: boolean;
 
   // Actions
   showCodeViewer: (file: FileNode) => void;
@@ -15,6 +16,7 @@ interface CodeViewerState {
   setSelectedFile: (file: FileNode | null) => void;
   setIsAnimating: (isAnimating: boolean) => void;
   setActiveTab: (tab: string) => void;
+  setShowFileTree: (show: boolean) => void;
 }
 
 const useCodeViewerStore = create<CodeViewerState>()(
@@ -25,6 +27,7 @@ const useCodeViewerStore = create<CodeViewerState>()(
       selectedFile: null,
       isAnimating: false,
       activeTab: 'code',
+      showFileTree: true,
 
       // Actions
       showCodeViewer: (file: FileNode) => {
@@ -42,15 +45,10 @@ const useCodeViewerStore = create<CodeViewerState>()(
 
       showPreviewMode: () => {
         set({ 
-          selectedFile: { 
-            name: 'Preview', 
-            path: 'preview', 
-            type: 'file',
-            content: ''
-          } as FileNode, 
+          selectedFile: null,  // No specific file selected, show file tree
           isVisible: true,
           isAnimating: true,
-          activeTab: 'preview'
+          activeTab: 'code'    // Start with code tab
         });
         // Reset animation state after animation completes
         setTimeout(() => {
@@ -80,6 +78,10 @@ const useCodeViewerStore = create<CodeViewerState>()(
 
       setActiveTab: (tab: string) => {
         set({ activeTab: tab });
+      },
+
+      setShowFileTree: (show: boolean) => {
+        set({ showFileTree: show });
       },
     }),
     {
