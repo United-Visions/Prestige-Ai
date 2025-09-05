@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import type { Message, App, Conversation } from '@/types';
 import { LargeLanguageModel, DEFAULT_MODEL } from '@/lib/models';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
+import AppStateManager from '@/services/appStateManager';
 
 interface AppState {
   apps: App[];
@@ -103,6 +104,11 @@ const useAppStore = create<AppState>()(
         if (app) {
           const conversations = await appService.getAppConversations(app.id);
           const fullApp = await appService.getApp(app.id);
+          
+          // Initialize app state in the state manager for continuous building
+          const stateManager = AppStateManager.getInstance();
+          await stateManager.switchToApp(fullApp);
+          
           set({ 
             currentApp: fullApp, 
             currentAppConversations: conversations,
@@ -194,6 +200,11 @@ const useAppStore = create<AppState>()(
       deleteApp: async (appId: number) => {
         const appService = AdvancedAppManagementService.getInstance();
         await appService.deleteApp(appId);
+        
+        // Clean up virtual filesystem state
+        const stateManager = AppStateManager.getInstance();
+        stateManager.cleanupApp(appId);
+        
         set((state) => ({
           apps: state.apps.filter((app) => app.id !== appId),
           currentApp: state.currentApp?.id === appId ? null : state.currentApp,

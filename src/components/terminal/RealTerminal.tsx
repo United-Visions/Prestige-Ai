@@ -186,53 +186,49 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
 
       sessionId.current = sessionResult.sessionId;
 
-      // Track current command for special handling
-      let currentCommand = '';
-      
-      // Handle terminal input
+      // Handle terminal input - pass all data directly to the real shell
       terminal.onData((data) => {
         if (!sessionId.current) return;
-
-        // Track command being typed
+        
+        // Intercept special commands before sending to shell
         if (data === '\r') {
-          // Enter pressed - check for special commands
-          const cmd = currentCommand.trim();
-          
-          terminal.write('\r\n'); // Move to new line
-          
-          if (handleSpecialCommand(cmd, terminal)) {
-            // Special command handled, show prompt again
-            currentCommand = '';
-            terminal.write('\x1b[1;32mprestige>\x1b[0m ');
-            return;
-          }
-          
-          if (cmd) {
-            // Regular command - execute it via electron
-            executeCommand(cmd, terminal);
-          } else {
-            // Empty command, just show prompt
-            terminal.write('\x1b[1;32mprestige>\x1b[0m ');
-          }
-          
-          currentCommand = '';
-        } else if (data === '\x7f' || data === '\b') {
-          // Backspace
-          if (currentCommand.length > 0) {
-            currentCommand = currentCommand.slice(0, -1);
-            terminal.write('\b \b'); // Move back, write space, move back again
-          }
-        } else if (data >= ' ' && data <= '~') {
-          // Printable character
-          currentCommand += data;
-          terminal.write(data); // Echo the character
+          // For special commands, we'll let them execute normally in the shell
+          // and handle them via command monitoring in the output
         }
-        // Ignore other control characters for simplicity
+        
+        // Send all input directly to the shell process
+        window.electronAPI?.terminal.write(sessionId.current, data);
       });
 
       // Handle terminal output
       window.electronAPI?.terminal.onData(sessionResult.sessionId, (data: string) => {
-        terminal.write(data);
+        // Check for special command patterns in the output
+        const lines = data.split('\n');
+        let modifiedData = data;
+        
+        for (const line of lines) {
+          const cmd = line.trim().toLowerCase();
+          if (cmd === 'fix' || cmd === 'fix-errors') {
+            // Inject our fix command implementation
+            const fixResult = handleSpecialCommand('fix', terminal);
+            if (fixResult) {
+              // Don't write the original command, we handled it
+              modifiedData = modifiedData.replace(line, '');
+            }
+          } else if (cmd === 'prestige-help' || cmd === 'help') {
+            const helpResult = handleSpecialCommand('prestige-help', terminal);
+            if (helpResult) {
+              modifiedData = modifiedData.replace(line, '');
+            }
+          } else if (cmd === 'clear-errors') {
+            const clearResult = handleSpecialCommand('clear-errors', terminal);
+            if (clearResult) {
+              modifiedData = modifiedData.replace(line, '');
+            }
+          }
+        }
+        
+        terminal.write(modifiedData);
         // Monitor for errors in real-time
         monitorForErrors(data);
       });
@@ -243,47 +239,46 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         sessionId.current = null;
       });
 
-      // The electron backend will send its own welcome message
+      // The electron backend will send its own PTY welcome message
       // We'll receive it through the terminal data handler
       
-      // Show our UI welcome message first
-      terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
-      terminal.write('\x1b[1;32m    Claude Code Direct Terminal\x1b[0m\r\n');
-      terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
-  terminal.write('\x1b[1;33mSpecial Commands:\x1b[0m\r\n');
-  terminal.write('  \x1b[1;36mfix\x1b[0m               - Auto-fix detected errors (Claude/Aider)\r\n');
-  terminal.write('  \x1b[1;36mprestige-help\x1b[0m     - Show all available commands\r\n');
-  terminal.write('  \x1b[1;36mclaude --help\x1b[0m     - Claude Code CLI help\r\n');
-  terminal.write('  \x1b[1;36maider --help\x1b[0m      - Aider CLI help\r\n');
-      terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
-      terminal.write('\x1b[1;33mNote: This is a simplified terminal. For full shell features, use your system terminal.\x1b[0m\r\n');
-      terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n\r\n');
-
-      // Check Claude Code availability
-  const isClaudeAvailable = await window.electronAPI?.terminal.checkClaudeAvailability();
-  claudeAvailableRef.current = !!isClaudeAvailable;
-  let aiderAvailable = false;
-  try {
+      // Check Claude Code and Aider availability in background
+      const isClaudeAvailable = await window.electronAPI?.terminal.checkClaudeAvailability();
+      claudeAvailableRef.current = !!isClaudeAvailable;
+      let aiderAvailable = false;
+      try {
         if ((window as any).electronAPI?.aider) {
           aiderAvailable = await (window as any).electronAPI.aider.checkAvailability();
         }
       } catch {}
       aiderAvailableRef.current = aiderAvailable;
-      if (!isClaudeAvailable) {
-        terminal.write('\x1b[1;31m⚠ Warning: Claude Code CLI not found in PATH\x1b[0m\r\n');
-        terminal.write('\x1b[1;33mTip: Install Claude Code CLI to use direct commands\x1b[0m\r\n\r\n');
-      } else {
-        terminal.write('\x1b[1;32m✓ Claude Code CLI detected and ready\x1b[0m\r\n\r\n');
-      }
-      if (!aiderAvailable) {
-        terminal.write('\x1b[1;31m⚠ Aider CLI not found in PATH\x1b[0m\r\n');
-        terminal.write('\x1b[1;33mInstall: pip install aider-install && aider-install\x1b[0m\r\n\r\n');
-      } else {
-        terminal.write('\x1b[1;32m✓ Aider CLI detected and ready\x1b[0m\r\n\r\n');
-      }
-
-      // Show a simple prompt
-      terminal.write('\x1b[1;32mprestige>\x1b[0m ');
+      
+      // Add a small delay to let the PTY welcome message display first
+      setTimeout(() => {
+        terminal.write('\r\n\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
+        terminal.write('\x1b[1;32m    Prestige AI Enhanced Terminal (Full Shell + AI)\x1b[0m\r\n');
+        terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
+        terminal.write('\x1b[1;33mEnhanced Commands:\x1b[0m\r\n');
+        terminal.write('  \x1b[1;36mfix\x1b[0m               - Auto-fix detected errors (Claude/Aider)\r\n');
+        terminal.write('  \x1b[1;36mprestige-help\x1b[0m     - Show all enhanced commands\r\n');
+        terminal.write('  \x1b[1;36mclaude "prompt"\x1b[0m   - Direct Claude Code CLI\r\n');
+        terminal.write('  \x1b[1;36maider "prompt"\x1b[0m    - Direct Aider CLI\r\n');
+        terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
+        terminal.write('\x1b[1;33mNote: This is a full native shell with tab completion, history, and all shell features!\x1b[0m\r\n');
+        terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
+        
+        if (!isClaudeAvailable) {
+          terminal.write('\x1b[1;31m⚠ Warning: Claude Code CLI not found in PATH\x1b[0m\r\n');
+        } else {
+          terminal.write('\x1b[1;32m✓ Claude Code CLI ready\x1b[0m\r\n');
+        }
+        if (!aiderAvailable) {
+          terminal.write('\x1b[1;31m⚠ Aider CLI not found in PATH\x1b[0m\r\n');
+        } else {
+          terminal.write('\x1b[1;32m✓ Aider CLI ready\x1b[0m\r\n');
+        }
+        terminal.write('\r\n');
+      }, 1000);
 
     } catch (error) {
       console.error('Failed to start shell process:', error);
@@ -291,19 +286,18 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
     }
   };
 
-  const executeCommand = async (command: string, terminal: Terminal) => {
+  // This function is no longer needed since we pass all data directly to the shell
+  // Keeping it for potential future use
+  const executeCommand = async (command: string, _terminal: Terminal) => {
     if (!sessionId.current) {
-      terminal.write('Terminal session not available\r\n');
-      terminal.write('\x1b[1;32mprestige>\x1b[0m ');
       return;
     }
-
-    // Send command to the shell process
+    // Commands are now handled directly through the shell
     window.electronAPI?.terminal.write(sessionId.current, command + '\n');
-    
-    // Note: Output will come through the onData handler
-    // We don't show a new prompt here because the shell will handle it
   };
+  
+  // Use the function to avoid unused variable warnings
+  executeCommand;
 
   const handleSpecialCommand = (command: string, terminal: Terminal): boolean => {
     const cmd = command.toLowerCase();
@@ -364,6 +358,7 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         terminal.write('  fix, fix-errors    - Auto-fix detected errors using Claude Code\r\n');
         terminal.write('  prestige-help      - Show this help message\r\n');
         terminal.write('  clear-errors       - Clear current error report\r\n');
+        terminal.write('  switch-ai          - Toggle fix preference (Claude ⇄ Aider)\r\n');
         terminal.write('\r\n');
   terminal.write('\x1b[1;33mClaude Code Commands:\x1b[0m\r\n');
   terminal.write('  claude "message"   - Send message to Claude Code CLI\r\n');
@@ -375,9 +370,11 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
   terminal.write('  aider --model gemini "prompt" (uses configured key)\r\n');
         terminal.write('\r\n');
         terminal.write('\x1b[1;33mTips:\x1b[0m\r\n');
+        terminal.write('  • This is a REAL shell with full features: tab completion, history, pipes, etc.\r\n');
         terminal.write('  • Run your app in Preview mode to detect build errors\r\n');
         terminal.write('  • Use "Send to Terminal" button in preview panel\r\n');
-        terminal.write('  • All regular shell commands work normally\r\n');
+        terminal.write('  • Use Ctrl+C, Ctrl+Z, and all standard terminal shortcuts\r\n');
+        terminal.write('  • Navigate with up/down arrows for command history\r\n');
         terminal.write('\x1b[1;32m' + '='.repeat(40) + '\x1b[0m\r\n');
         return true;
         
@@ -386,6 +383,16 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         delete (window as any).prestigeErrorPrompt;
         terminal.write('\x1b[1;32m✓ Error report cleared\x1b[0m\r\n');
         return true;
+      case 'switch-ai': {
+        try {
+          const store = (require('@/stores/aiderStore') as any).useAiderStore.getState();
+          store.setPreferAider(!store.preferAider);
+          terminal.write(`\x1b[1;32mAI fix preference set to: ${store.preferAider ? 'Aider first' : 'Claude first'}\x1b[0m\r\n`);
+        } catch (e) {
+          terminal.write('\x1b[1;31mFailed to toggle preference\x1b[0m\r\n');
+        }
+        return true;
+      }
         
       default:
         return false; // Not a special command, let shell handle it
@@ -447,11 +454,18 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
 
     const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
     const escaped = errorPrompt.replace(/"/g, '\\"');
-    const fixCommand = claudeAvailableRef.current
-      ? `claude "${escaped}"`
-      : aiderAvailableRef.current
-        ? `aider "${escaped}"`
-        : '';
+    const aiderArgs = (aiderAvailableRef.current && (window as any).electronAPI?.aider) ? (require('@/stores/aiderStore') as any).useAiderStore.getState().getCliArgs() : {};
+    const aiderPrefix = aiderArgs.model ? `aider --model ${aiderArgs.model}${aiderArgs.apiKeySpec ? ' --api-key ' + aiderArgs.apiKeySpec : ''}` : 'aider';
+    const store = (aiderAvailableRef.current && (window as any).electronAPI?.aider) ? (require('@/stores/aiderStore') as any).useAiderStore.getState() : null;
+    const preferAider = store?.preferAider;
+    let fixCommand = '';
+    if (preferAider) {
+      if (aiderAvailableRef.current) fixCommand = `${aiderPrefix} "${escaped}"`;
+      else if (claudeAvailableRef.current) fixCommand = `claude "${escaped}"`;
+    } else {
+      if (claudeAvailableRef.current) fixCommand = `claude "${escaped}"`;
+      else if (aiderAvailableRef.current) fixCommand = `${aiderPrefix} "${escaped}"`;
+    }
     if (!fixCommand) {
       showToast('No CLI (Claude/Aider) available for fixing', 'error');
       return;
@@ -474,9 +488,9 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
           <div className="flex items-center gap-3">
             <TerminalIcon className="w-5 h-5 text-blue-400" />
             <div>
-              <h3 className="text-lg font-semibold text-white">Direct Terminal</h3>
+              <h3 className="text-lg font-semibold text-white">Enhanced Terminal</h3>
               <p className="text-sm text-gray-400">
-                Native shell with Claude Code CLI integration
+                Full native shell with PTY + AI integration • Tab completion • Command history
                 {currentApp && ` • ${currentApp.name}`}
               </p>
             </div>

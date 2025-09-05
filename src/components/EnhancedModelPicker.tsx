@@ -18,6 +18,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { modelProviders, LargeLanguageModel } from '@/lib/models';
+import { useAiderStore } from '@/stores/aiderStore';
 import { useApiKeyStore, getModelAvailability } from '@/lib/apiKeys';
 
 interface EnhancedModelPickerProps {
@@ -174,6 +175,54 @@ export function EnhancedModelPicker({
 
   const headerStatus = getHeaderStatus();
 
+  // Aider backend selection state
+  const { backendProvider, model: aiderModel, setBackend } = useAiderStore();
+  const anthropicStatus = getProviderStatus('anthropic');
+  const openaiStatus = getProviderStatus('openai' as any);
+  const googleStatus = getProviderStatus('google');
+
+  const aiderBackends = [
+    { id: 'anthropic', label: 'Claude (sonnet)', model: 'sonnet', status: anthropicStatus },
+    { id: 'openai', label: 'OpenAI (o3-mini)', model: 'o3-mini', status: openaiStatus },
+    { id: 'gemini', label: 'Gemini (gemini)', model: 'gemini', status: googleStatus },
+  ] as const;
+
+  const renderAiderBackendSelector = () => {
+    if (selectedModel.name !== 'aider-cli') return null;
+    return (
+      <div className="p-3 border-t space-y-2 bg-muted/30">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aider Backend</div>
+        <div className="flex flex-col gap-1">
+          {aiderBackends.map(b => {
+            const enabled = b.status.hasKey && b.status.isValid;
+            const active = backendProvider === b.id;
+            return (
+              <button
+                key={b.id}
+                disabled={!enabled}
+                onClick={() => setBackend(b.id as any, b.model)}
+                className={cn(
+                  'text-left px-2 py-1 rounded border text-xs flex items-center justify-between',
+                  enabled ? 'cursor-pointer hover:bg-accent' : 'opacity-50 cursor-not-allowed',
+                  active && 'bg-accent border-primary'
+                )}
+              >
+                <span>{b.label}</span>
+                <span className="flex items-center gap-1">
+                  {!enabled && <Key className="h-3 w-3 text-orange-500" />}
+                  {active && <Check className="h-3 w-3 text-green-500" />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[10px] text-muted-foreground leading-snug">
+          Select which provider Aider will invoke. Each option requires its API key configured. If none selected, fixes will not run via Aider.
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex items-center gap-2">
       <Popover open={open} onOpenChange={setOpen}>
@@ -264,6 +313,7 @@ export function EnhancedModelPicker({
               ))}
             </CommandList>
           </Command>
+          {renderAiderBackendSelector()}
         </PopoverContent>
       </Popover>
     </div>

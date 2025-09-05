@@ -14,7 +14,7 @@ import useCodeViewerStore from '@/stores/codeViewerStore';
 import { DEFAULT_TEMPLATE_ID, getTemplateById } from '@/templates';
 import { Sparkles, FileText, Code, Zap, Play, Settings, ChevronDown, Loader, StopCircle, Terminal as TerminalIcon } from 'lucide-react';
 import { AppSidebar } from '../apps/AppSidebar';
-import { processAgentResponse } from '@/services/agentResponseProcessor';
+import { processContinuousAgentResponse } from '@/services/continuousAgentProcessor';
 import { constructSystemPrompt, readAiRules } from '@/prompts/system_prompt';
 import { aiModelService, StreamChunk } from '@/services/aiModelService';
 import { ClaudeCodeService } from '@/services/claudeCodeService';
@@ -51,8 +51,10 @@ export function ChatInterface() {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [showTerminalMode, setShowTerminalMode] = useState(false);
 
-  // Determine if we should show terminal mode
+  // Determine if we should show terminal mode (Claude Code or Aider CLI)
   const isClaudeCodeSelected = selectedModel.name === 'claude-code' || selectedModel.provider === 'claude-code';
+  const isAiderSelected = selectedModel.name === 'aider-cli' || selectedModel.provider === 'aider';
+  const hasTerminalIntegration = isClaudeCodeSelected || isAiderSelected;
   
   // Debug logging
   console.log('🔍 Model Selection Debug:', {
@@ -62,14 +64,12 @@ export function ChatInterface() {
   });
   
   useEffect(() => {
-    // Automatically switch to terminal mode when Claude Code is selected
-    if (isClaudeCodeSelected) {
+    if (hasTerminalIntegration) {
       setShowTerminalMode(true);
     } else {
-      // Exit terminal mode when switching away from Claude Code
       setShowTerminalMode(false);
     }
-  }, [isClaudeCodeSelected]);
+  }, [hasTerminalIntegration]);
 
   useEffect(() => {
     loadApps();
@@ -214,7 +214,7 @@ export function ChatInterface() {
         // Define processResponse before the streaming call
         const processResponse = async () => {
           try {
-            const agentResult = await processAgentResponse(agentResponse);
+            const agentResult = await processContinuousAgentResponse(agentResponse);
             
             if (agentResult && agentResult.chatContent) {
               const { chatContent, chatSummary } = agentResult;
@@ -333,7 +333,7 @@ export function ChatInterface() {
         );
       }
       
-      const agentResult = await processAgentResponse(agentResponse);
+      const agentResult = await processContinuousAgentResponse(agentResponse);
       
       if (agentResult && agentResult.chatContent) {
         const { chatContent, chatSummary } = agentResult;
@@ -420,8 +420,8 @@ export function ChatInterface() {
                 onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
               />
               
-              {/* Terminal Toggle for Claude Code */}
-              {isClaudeCodeSelected && (
+              {/* Terminal Toggle for Claude Code / Aider */}
+              {hasTerminalIntegration && (
                 <Button
                   size="sm"
                   variant={showTerminalMode ? "default" : "outline"}
@@ -429,7 +429,7 @@ export function ChatInterface() {
                   className="gap-2"
                 >
                   <TerminalIcon className="w-4 h-4" />
-                  {showTerminalMode ? 'Chat Mode' : 'Terminal Mode'}
+                  {showTerminalMode ? 'Chat Mode' : (isAiderSelected ? 'Aider Terminal' : 'Terminal Mode')}
                 </Button>
               )}
               

@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send, Folder } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send, Folder, Edit3, Save, XCircle, Wand2, FileCode, Wrench, MessageCircle } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
 import { FileTreeView } from '@/components/project/FileTreeView';
 import { AppError, AppOutput } from '@/types/appTypes';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
+import { useAiderStore } from '@/stores/aiderStore';
 import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetectionService';
 
 interface CodeViewerPanelProps {
@@ -42,6 +43,13 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
   const [iframeKey, setIframeKey] = useState(0);
   const [errorReport, setErrorReport] = useState<ErrorReport | null>(null);
   const [isFixingErrors, setIsFixingErrors] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [selectionText, setSelectionText] = useState('');
+  const [selectionToolbarPos, setSelectionToolbarPos] = useState<{ x: number; y: number } | null>(null);
+  const [selectedAction, setSelectedAction] = useState<string | null>(null);
+  const aiderStore = useAiderStore();
 
   const appService = AdvancedAppManagementService.getInstance();
   const errorService = ErrorDetectionService.getInstance();
@@ -489,6 +497,115 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     return content.split('\n').length;
   };
 
+  const clearSelectionState = () => {
+    setSelectionText('');
+    setSelectionToolbarPos(null);
+    setSelectedAction(null);
+  };
+
+  const handleTextSelection = () => {
+    if (isEditing) return; // disable when editing
+    const sel = window.getSelection();
+    if (!sel) return clearSelectionState();
+    const text = sel.toString();
+    if (text.trim().length === 0) {
+      clearSelectionState();
+      return;
+    }
+    try {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      // position toolbar slightly above selection
+      setSelectionToolbarPos({ x: rect.left + rect.width / 2, y: Math.max(0, rect.top - 8) });
+      setSelectionText(text);
+    } catch {
+      clearSelectionState();
+    }
+  };
+
+  const buildActionPrompt = (action: string, code: string) => {
+    const language = selectedFile ? getLanguageFromExtension(selectedFile.name) : 'text';
+    const filePath = selectedFile?.path || 'unknown file';
+    switch (action) {
+      case 'edit':
+        return `You are assisting with targeted edits to a code fragment from ${filePath}. Provide only the updated code block(s) if changes are needed. If no changes, respond with: NO_CHANGE\n\nOriginal (${language}):\n\n\n\u0060\u0060\u0060${language}\n${code}\n\u0060\u0060\u0060`;
+      case 'refactor':
+        return `Refactor the following ${language} code from ${filePath} for clarity, performance, and maintainability. Keep external behavior identical. Return updated code only.\n\n\u0060\u0060\u0060${language}\n${code}\n\u0060\u0060\u0060`;
+      case 'fix':
+        return `Identify and fix any bugs, edge cases, or potential errors in this ${language} code from ${filePath}. Explain briefly then provide corrected code.\n\n\u0060\u0060\u0060${language}\n${code}\n\u0060\u0060\u0060`;
+      case 'explain':
+        return `Explain what the following ${language} code from ${filePath} does. Point out key design choices and any potential issues.\n\n\u0060\u0060\u0060${language}\n${code}\n\u0060\u0060\u0060`;
+      default:
+        return code;
+    }
+  };
+
+  const sendPromptToChat = async (prompt: string) => {
+    try {
+      if (!currentApp?.id) {
+        showToast('No app context to attach chat message', 'error');
+        return;
+      }
+      const conversations = await appService.getAppConversations(currentApp.id);
+      let conversationId = conversations[0]?.id;
+      if (!conversationId) {
+        conversationId = await window.electronAPI.db.createConversation({ appId: currentApp.id, title: `Conversation for ${currentApp.name}`, createdAt: Date.now() });
+      }
+      await window.electronAPI.db.addMessage({ conversationId, role: 'user', content: prompt, createdAt: Date.now() });
+      showToast('Sent selection to chat', 'success');
+      clearSelectionState();
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to send to chat', 'error');
+    }
+  };
+
+  const sendPromptToClaude = async (prompt: string) => {
+    try {
+      const output = await window.electronAPI.claudeCode.execute(prompt, { cwd: currentApp?.path });
+      // Optionally push to chat as assistant message for traceability
+      if (currentApp?.id) {
+        const conversations = await appService.getAppConversations(currentApp.id);
+        const conversationId = conversations[0]?.id;
+        if (conversationId) {
+          await window.electronAPI.db.addMessage({ conversationId, role: 'assistant', content: `Claude Code CLI Output:\n\n${output}`, createdAt: Date.now() });
+        }
+      }
+      showToast('Sent selection to Claude Code CLI', 'success');
+      clearSelectionState();
+    } catch (e) {
+      console.error(e);
+      showToast('Claude execution failed', 'error');
+    }
+  };
+
+  const sendPromptToAider = async (prompt: string) => {
+    try {
+      const { model, apiKeySpec } = aiderStore.getCliArgs();
+      const output = await window.electronAPI.aider.execute(prompt, { cwd: currentApp?.path, model, apiKeySpec });
+      if (currentApp?.id) {
+        const conversations = await appService.getAppConversations(currentApp.id);
+        const conversationId = conversations[0]?.id;
+        if (conversationId) {
+          await window.electronAPI.db.addMessage({ conversationId, role: 'assistant', content: `Aider CLI Output:\n\n${output}`, createdAt: Date.now() });
+        }
+      }
+      showToast('Sent selection to Aider CLI', 'success');
+      clearSelectionState();
+    } catch (e) {
+      console.error(e);
+      showToast('Aider execution failed', 'error');
+    }
+  };
+
+  const handleDestination = (destination: string) => {
+    if (!selectedAction || !selectionText) return;
+    const prompt = buildActionPrompt(selectedAction, selectionText);
+    if (destination === 'chat') return void sendPromptToChat(prompt);
+    if (destination === 'claude') return void sendPromptToClaude(prompt);
+    if (destination === 'aider') return void sendPromptToAider(prompt);
+  };
+
   return (
     <div 
       className={`fixed top-0 left-0 right-0 bottom-0 z-50 transition-all duration-300 ease-in-out ${
@@ -554,7 +671,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
           <div className="flex items-center gap-2">
             {activeTab === 'code' && (
               <>
-                {selectedFile && (
+                {selectedFile && !isEditing && (
                   <>
                     <Button
                       variant="ghost"
@@ -574,6 +691,66 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                       title="Download file"
                     >
                       <Download className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditedContent(selectedFile.content || '');
+                        setIsEditing(true);
+                      }}
+                      className="h-8 w-8 p-0"
+                      title="Edit file"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+                {selectedFile && isEditing && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        if (!currentApp) return;
+                        setIsSaving(true);
+                        try {
+                          // Attempt to resolve absolute path: assume files root is app.path + '/files'
+                          // selectedFile.path is relative inside project
+                          // Attempt to derive full path. Prefer currentApp.path (assumed absolute to project root), else fallback to desktop pattern.
+                          let projectRoot = currentApp.path;
+                          if (!projectRoot) {
+                            const desktop = await window.electronAPI.app.getDesktopPath();
+                            projectRoot = await window.electronAPI.path.join(desktop, 'prestige-ai', currentApp.name);
+                          }
+                          const fullPath = await window.electronAPI.path.join(projectRoot, selectedFile.path);
+                          await window.electronAPI.fs.writeFile(fullPath, editedContent);
+                          // Mutate in-memory content (lightweight sync)
+                          selectedFile.content = editedContent;
+                          setIsEditing(false);
+                          showToast('File saved', 'success');
+                        } catch (e) {
+                          console.error('Save failed', e);
+                          showToast('Failed to save file', 'error');
+                        } finally {
+                          setIsSaving(false);
+                        }
+                      }}
+                      disabled={isSaving}
+                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                      title="Save file"
+                    >
+                      <Save className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isSaving}
+                      onClick={() => { setIsEditing(false); setEditedContent(''); }}
+                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                      title="Cancel editing"
+                    >
+                      <XCircle className="w-4 h-4" />
                     </Button>
                   </>
                 )}
@@ -738,14 +915,25 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 {/* Added min-w-0 to allow flex item to shrink and not push file tree off-screen */}
                 <div className="flex-1 flex flex-col min-w-0">
                   {selectedFile ? (
-                    <div className="h-full flex-1 min-w-0">
-                      <pre
-                        className={`p-4 text-sm font-mono leading-relaxed overflow-auto h-full bg-gray-50 w-full ${showFileTree ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} `}
-                      >
-                        <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
-                          {selectedFile.content}
-                        </code>
-                      </pre>
+                    <div className="h-full flex-1 min-w-0 relative">
+                      {!isEditing && (
+                        <pre
+                          onMouseUp={handleTextSelection}
+                          className={`relative p-4 text-sm font-mono leading-relaxed overflow-auto h-full bg-gray-50 w-full selection:bg-blue-300/60 ${showFileTree ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} `}
+                        >
+                          <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
+                            {selectedFile.content}
+                          </code>
+                        </pre>
+                      )}
+                      {isEditing && (
+                        <textarea
+                          value={editedContent}
+                          onChange={(e) => setEditedContent(e.target.value)}
+                          spellCheck={false}
+                          className="absolute inset-0 w-full h-full font-mono text-sm p-4 bg-white border-0 focus:outline-none resize-none"
+                        />
+                      )}
                     </div>
                   ) : !currentApp ? (
                     <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
@@ -917,6 +1105,45 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
           </div>
         </CardContent>
       </Card>
+      {selectionToolbarPos && selectionText && (
+        <div
+          className="fixed z-[60] bg-white border shadow-lg rounded-md p-2 text-xs flex flex-col gap-2 w-60"
+          style={{ top: selectionToolbarPos.y, left: selectionToolbarPos.x - 120 }}
+        >
+          <div className="flex justify-between items-center">
+            <span className="font-medium truncate max-w-[140px]">Code Actions</span>
+            <button onClick={clearSelectionState} className="text-gray-400 hover:text-gray-600">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {['edit','refactor','fix','explain'].map(action => (
+              <button
+                key={action}
+                onClick={() => setSelectedAction(action)}
+                className={`px-2 py-1 rounded border text-[11px] capitalize flex items-center gap-1 hover:bg-gray-100 ${selectedAction === action ? 'bg-blue-100 border-blue-400' : 'border-gray-300'}`}
+              >
+                {action === 'edit' && <FileCode className="w-3 h-3" />}
+                {action === 'refactor' && <Wand2 className="w-3 h-3" />}
+                {action === 'fix' && <Wrench className="w-3 h-3" />}
+                {action === 'explain' && <MessageCircle className="w-3 h-3" />}
+                {action}
+              </button>
+            ))}
+          </div>
+          {selectedAction && (
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] uppercase text-gray-500 tracking-wide">Send To</div>
+              <div className="flex gap-1">
+                <button onClick={() => handleDestination('chat')} className="flex-1 px-2 py-1 rounded bg-gray-800 text-white hover:bg-gray-700 text-[11px]">Chat</button>
+                <button onClick={() => handleDestination('aider')} className="flex-1 px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500 text-[11px]">Aider</button>
+                <button onClick={() => handleDestination('claude')} className="flex-1 px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-500 text-[11px]">Claude</button>
+              </div>
+              <div className="line-clamp-2 text-[10px] text-gray-500 mt-1">{selectionText.slice(0,140)}{selectionText.length>140?'…':''}</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

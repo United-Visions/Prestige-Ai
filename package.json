@@ -2,17 +2,18 @@
   "name": "prestige-ai",
   "version": "0.1.4",
   "description": "A simplified Claude Code CLI integration inspired by CCdyad",
-  "type": "module",
-  "main": "dist-electron/main.cjs",
+  "type": "commonjs",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "start": "node scripts/dev.js",
+    "start": "node scripts/dev.cjs",
     "test:setup": "node scripts/test-setup.js",
-    "build": "tsc && vite build && electron-builder",
-    "build:dir": "tsc && vite build && electron-builder --dir",
-    "build:mac": "tsc && vite build && electron-builder --mac",
-    "build:win": "tsc && vite build && electron-builder --win",
-    "build:linux": "tsc && vite build && electron-builder --linux",
+    "postinstall": "node scripts/fix-sqlite3-bindings.js",
+    "build": "node scripts/fix-sqlite3-bindings.js && tsc && mv dist-electron/main.js dist-electron/main.cjs 2>/dev/null || true && vite build && electron-builder",
+    "build:dir": "node scripts/fix-sqlite3-bindings.js && tsc && vite build && electron-builder --dir",
+    "build:mac": "node scripts/fix-sqlite3-bindings.js && tsc && vite build && electron-builder --mac",
+    "build:win": "node scripts/fix-sqlite3-bindings.js && tsc && vite build && electron-builder --win",
+    "build:linux": "node scripts/fix-sqlite3-bindings.js && tsc && vite build && electron-builder --linux",
     "build:all": "tsc && vite build && electron-builder --mac --win --linux",
     "build:versioned": "node scripts/organize-builds.js --structure-only && npm run build:all && node scripts/organize-builds.js",
     "build:mac:versioned": "node scripts/organize-builds.js --structure-only && npm run build:mac && node scripts/organize-builds.js",
@@ -38,6 +39,7 @@
     "lint:fix": "eslint . --ext ts,tsx --fix"
   },
   "dependencies": {
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-popover": "^1.1.15",
@@ -95,6 +97,7 @@
     "wait-on": "^7.2.0"
   },
   "build": {
+    "afterPack": "./scripts/fix-sqlite3-bindings.js",
     "appId": "com.prestige-ai.app",
     "productName": "Prestige-AI",
     "directories": {

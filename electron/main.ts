@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { spawn, ChildProcess } from 'child_process'
+import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { join, resolve } from 'path'
 import { tmpdir } from 'os'
@@ -11,8 +12,8 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
 
-// Use regular child_process for terminal functionality (cross-platform compatible)
-// This provides basic terminal functionality without requiring node-pty
+// Use node-pty for professional-grade terminal functionality
+// This provides full PTY support with advanced terminal features
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -176,18 +177,52 @@ ipcMain.handle('claude-code:check-availability', async (): Promise<boolean> => {
   return new Promise((resolve) => {
     const childProcess = spawn('claude', ['--version'], {
       shell: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PATH: enhancePath(process.env.PATH || '')
+      }
+    });
+
+    let output = '';
+    let stderr = '';
+    
+    childProcess.stdout?.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    childProcess.stderr?.on('data', (data) => {
+      stderr += data.toString();
     });
 
     childProcess.on('close', (code: number | null) => {
-      // Claude CLI is installed if the command succeeds
-      // Even with usage limits, the CLI is still "available" for installation purposes
-      resolve(code === 0);
+      // Enhanced detection - check for Claude Code in output or successful exit with version info
+      const outputText = (output + stderr).toLowerCase();
+      const hasClaudeInOutput = outputText.includes('claude');
+      const hasVersionPattern = /\d+\.\d+\.\d+/.test(output + stderr);
+      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
+      
+      console.log('🔍 Claude Code availability check:', { 
+        isAvailable, 
+        code, 
+        output: output.trim(), 
+        hasClaudeInOutput,
+        hasVersionPattern
+      });
+      resolve(isAvailable);
     });
 
     childProcess.on('error', () => {
+      console.log('🔍 Claude Code availability check failed due to spawn error');
       resolve(false);
     });
+    
+    // Add timeout
+    setTimeout(() => {
+      childProcess.kill();
+      console.log('🔍 Claude Code availability check timed out');
+      resolve(false);
+    }, 3000);
   });
 });
 
@@ -197,19 +232,44 @@ ipcMain.handle('claude-code:check-status', async (): Promise<{ available: boolea
     // First check if CLI is installed
     const versionProcess = spawn('claude', ['--version'], {
       shell: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PATH: enhancePath(process.env.PATH || '')
+      }
+    });
+
+    let versionOutput = '';
+    let versionStderr = '';
+    
+    versionProcess.stdout?.on('data', (data) => {
+      versionOutput += data.toString();
+    });
+    
+    versionProcess.stderr?.on('data', (data) => {
+      versionStderr += data.toString();
     });
 
     versionProcess.on('close', (code: number | null) => {
-      if (code !== 0) {
-        resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not installed' });
+      // Enhanced detection for version check
+      const outputText = (versionOutput + versionStderr).toLowerCase();
+      const hasClaudeInOutput = outputText.includes('claude');
+      const hasVersionPattern = /\d+\.\d+\.\d+/.test(versionOutput + versionStderr);
+      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
+      
+      if (!isAvailable) {
+        resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not installed or not accessible' });
         return;
       }
 
       // CLI is installed, now check for usage limits by trying a simple command
       const testProcess = spawn('claude', ['--help'], {
         shell: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PATH: enhancePath(process.env.PATH || '')
+        }
       });
 
       let stderr = '';
@@ -229,11 +289,23 @@ ipcMain.handle('claude-code:check-status', async (): Promise<{ available: boolea
       testProcess.on('error', () => {
         resolve({ available: true, hasUsageLimit: false, error: 'Could not check usage status' });
       });
+      
+      // Add timeout for test process
+      setTimeout(() => {
+        testProcess.kill();
+        resolve({ available: true, hasUsageLimit: false, error: 'Usage check timed out' });
+      }, 3000);
     });
 
     versionProcess.on('error', () => {
       resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not found' });
     });
+    
+    // Add timeout for version process
+    setTimeout(() => {
+      versionProcess.kill();
+      resolve({ available: false, hasUsageLimit: false, error: 'Version check timed out' });
+    }, 3000);
   });
 });
 
@@ -248,7 +320,7 @@ ipcMain.handle('claude-code:execute', async (event, prompt: string, options: { c
     console.log('Working directory:', cwd);
     
     // Create temporary file for the prompt
-    const tempFileName = `prestige-ai-prompt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.txt`;
+    const tempFileName = `prestige-ai-prompt-${Date.now()}-${Math.random().toString(36).substring(2, 11)}.txt`;
     const tempFilePath = join(tmpdir(), tempFileName);
     
     try {
@@ -351,7 +423,7 @@ ipcMain.handle('aider:execute', async (event, prompt: string, options: { cwd?: s
     const prestigeAIPath = join(desktopPath, 'prestige-ai');
     const { cwd = prestigeAIPath, model, apiKeySpec } = options;
 
-    const tempFileName = `prestige-ai-aider-prompt-${Date.now()}-${Math.random().toString(36).substr(2,9)}.txt`;
+    const tempFileName = `prestige-ai-aider-prompt-${Date.now()}-${Math.random().toString(36).substring(2, 11)}.txt`;
     const tempFilePath = join(tmpdir(), tempFileName);
     try {
       writeFileSync(tempFilePath, prompt, 'utf8');
@@ -705,7 +777,7 @@ app.whenReady().then(() => {
 interface TerminalSession {
   id: string;
   pid: number;
-  process: ChildProcess;
+  process: pty.IPty;
   cwd: string;
   appId?: number;
 }
@@ -726,20 +798,29 @@ function enhancePath(currentPath: string): string {
     process.env.HOME + '/.npm-global/bin',
     // Add Homebrew paths for M1/M2 Macs
     '/opt/homebrew/bin',
-    '/opt/homebrew/sbin'
-  ];
+    '/opt/homebrew/sbin',
+    // Add NVM paths for Node.js binaries (where Claude CLI might be installed)
+    process.env.HOME + '/.nvm/versions/node/v18.20.8/bin',
+    process.env.HOME + '/.nvm/versions/node/v20.15.1/bin',
+    process.env.HOME + '/.nvm/versions/node/v22.5.1/bin',
+    // Add common NVM current/default paths
+    process.env.NVM_BIN,
+    process.env.HOME + '/.nvm/current/bin'
+  ].filter(Boolean); // Remove any undefined values
 
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
   const pathComponents = currentPath.split(pathSeparator);
   
-  // Add missing common paths
+  // Add missing common paths to the beginning of PATH for priority
   commonPaths.forEach(path => {
-    if (!pathComponents.includes(path)) {
+    if (path && !pathComponents.includes(path)) {
       pathComponents.unshift(path);
     }
   });
 
-  return pathComponents.join(pathSeparator);
+  const enhancedPath = pathComponents.join(pathSeparator);
+  console.log('🔧 Enhanced PATH for CLI detection:', enhancedPath);
+  return enhancedPath;
 }
 
 // Terminal IPC Handlers
@@ -752,31 +833,18 @@ ipcMain.handle('terminal:create-session', async (_, options: {
   appName?: string;
 }): Promise<{ sessionId: string; pid: number }> => {
   try {
-    const sessionId = `terminal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = `terminal_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     
-    // Determine shell based on platform with simple, reliable fallbacks
-    let shell: string;
+    // Determine shell based on platform with improved detection
+    const getShell = () => {
+      if (process.platform === 'win32') {
+        return process.env.COMSPEC || 'cmd.exe';
+      }
+      return process.env.SHELL || '/bin/bash';
+    };
+    
+    const shell = getShell();
     let shellArgs: string[] = [];
-    
-    if (process.platform === 'win32') {
-      shell = 'cmd.exe';
-    } else {
-      // For Unix-like systems, use bash with fallback to sh
-      // Try to use the basename of the user's shell, or fallback to bash/sh
-      const userShell = process.env.SHELL;
-      if (userShell && userShell.includes('zsh')) {
-        shell = 'bash'; // Use bash instead of zsh for better compatibility
-      } else if (userShell && userShell.includes('bash')) {
-        shell = 'bash';
-      } else {
-        shell = 'sh'; // Most universal fallback
-      }
-      
-      // For interactive usage, try to make it interactive
-      if (shell === 'bash') {
-        shellArgs = ['-i']; // Interactive bash
-      }
-    }
 
     // Prepare environment with app context
     const environment = {
@@ -808,18 +876,20 @@ ipcMain.handle('terminal:create-session', async (_, options: {
       throw new Error(`Working directory does not exist: ${options.cwd}`);
     }
 
-    // Create shell process using child_process
-    let shellProcess: ChildProcess;
+    // Create shell process using node-pty
+    let shellProcess: pty.IPty;
     try {
-      console.log(`🖥️ Spawning shell: ${shell} ${shellArgs.join(' ')} in ${options.cwd}`);
-      shellProcess = spawn(shell, shellArgs, {
+      console.log(`🖥️ Spawning PTY shell: ${shell} ${shellArgs.join(' ')} in ${options.cwd}`);
+      shellProcess = pty.spawn(shell, shellArgs, {
+        name: 'xterm-256color',
+        cols: options.cols,
+        rows: options.rows,
         cwd: options.cwd,
-        env: environment,
-        stdio: ['pipe', 'pipe', 'pipe']
+        env: environment
       });
     } catch (spawnError) {
-      console.error('❌ Failed to spawn shell process:', spawnError);
-      throw new Error(`Failed to spawn shell ${shell}: ${spawnError}`);
+      console.error('❌ Failed to spawn PTY shell process:', spawnError);
+      throw new Error(`Failed to spawn PTY shell ${shell}: ${spawnError}`);
     }
 
     if (!shellProcess.pid) {
@@ -834,46 +904,38 @@ ipcMain.handle('terminal:create-session', async (_, options: {
       appId: options.appId
     };
 
-    // Set up event forwarding to renderer
-    shellProcess.stdout?.on('data', (data: Buffer) => {
+    // Set up PTY event forwarding to renderer
+    shellProcess.onData((data: string) => {
       if (mainWindow?.webContents) {
-        mainWindow.webContents.send(`terminal:data:${sessionId}`, data.toString());
+        mainWindow.webContents.send(`terminal:data:${sessionId}`, data);
       }
     });
 
-    shellProcess.stderr?.on('data', (data: Buffer) => {
+    shellProcess.onExit((e: { exitCode: number; signal?: number }) => {
       if (mainWindow?.webContents) {
-        mainWindow.webContents.send(`terminal:data:${sessionId}`, data.toString());
-      }
-    });
-
-    shellProcess.on('close', (code: number | null) => {
-      if (mainWindow?.webContents) {
-        mainWindow.webContents.send(`terminal:exit:${sessionId}`, code || 0);
+        mainWindow.webContents.send(`terminal:exit:${sessionId}`, e.exitCode);
       }
       // Clean up session
       terminalSessions.delete(sessionId);
-      console.log(`🗑️ Terminal session ${sessionId} cleaned up (exit code: ${code})`);
+      console.log(`🗑️ Terminal session ${sessionId} cleaned up (exit code: ${e.exitCode})`);
     });
 
-    // Handle process errors (including spawn failures)
-    shellProcess.on('error', (error: NodeJS.ErrnoException) => {
+    // Handle PTY process errors
+    try {
+      // PTY error handling is built into the onExit callback
+      // Additional error handling can be added here if needed
+    } catch (error) {
       console.error(`Terminal session ${sessionId} error:`, error);
       
       // Send error message to terminal
       if (mainWindow?.webContents) {
-        const errorMsg = `\r\n\x1b[1;31m✗ Shell Error: ${error.message}\x1b[0m\r\n`;
-        if (error.code === 'ENOENT') {
-          const suggestedMsg = `\r\n\x1b[1;33mTip: Shell "${shell}" not found. Try using a different shell or check PATH.\x1b[0m\r\n`;
-          mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg + suggestedMsg);
-        } else {
-          mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg);
-        }
+        const errorMsg = `\r\n\x1b[1;31m✗ PTY Error: ${error}\x1b[0m\r\n`;
+        mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg);
         mainWindow.webContents.send(`terminal:exit:${sessionId}`, 1);
       }
       
       terminalSessions.delete(sessionId);
-    });
+    }
 
     terminalSessions.set(sessionId, session);
 
@@ -909,7 +971,7 @@ ipcMain.handle('terminal:write', async (_, sessionId: string, data: string): Pro
   }
 
   try {
-    session.process.stdin?.write(data);
+    session.process.write(data);
     return true;
   } catch (error) {
     console.error(`Failed to write to terminal session ${sessionId}:`, error);
@@ -918,9 +980,20 @@ ipcMain.handle('terminal:write', async (_, sessionId: string, data: string): Pro
 });
 
 ipcMain.handle('terminal:resize', async (_, sessionId: string, cols: number, rows: number): Promise<boolean> => {
-  // Note: child_process doesn't support resize like node-pty, but we can acknowledge the request
-  console.log(`Terminal resize requested for ${sessionId}: ${cols}x${rows}`);
-  return true;
+  const session = terminalSessions.get(sessionId);
+  if (!session) {
+    console.warn(`Terminal session ${sessionId} not found for resize`);
+    return false;
+  }
+
+  try {
+    session.process.resize(cols, rows);
+    console.log(`Terminal resized for ${sessionId}: ${cols}x${rows}`);
+    return true;
+  } catch (error) {
+    console.error(`Failed to resize terminal session ${sessionId}:`, error);
+    return false;
+  }
 });
 
 ipcMain.handle('terminal:kill', async (_, sessionId: string): Promise<boolean> => {
@@ -931,7 +1004,7 @@ ipcMain.handle('terminal:kill', async (_, sessionId: string): Promise<boolean> =
   }
 
   try {
-    session.process.kill('SIGTERM');
+    session.process.kill();
     terminalSessions.delete(sessionId);
     console.log(`🗑️ Terminal session ${sessionId} killed`);
     return true;
@@ -946,7 +1019,7 @@ ipcMain.handle('terminal:kill-sessions-for-app', async (_, appId: number): Promi
   
   for (const session of sessionsToKill) {
     try {
-      session.process.kill('SIGTERM');
+      session.process.kill();
       terminalSessions.delete(session.id);
       console.log(`🗑️ Terminal session ${session.id} killed for app ${appId}`);
     } catch (error) {
@@ -959,6 +1032,7 @@ ipcMain.handle('terminal:check-claude-availability', async (): Promise<boolean> 
   return new Promise((resolve) => {
     const child = spawn('claude', ['--version'], { 
       stdio: 'pipe',
+      shell: true,
       env: {
         ...process.env,
         PATH: enhancePath(process.env.PATH || '')
@@ -966,26 +1040,45 @@ ipcMain.handle('terminal:check-claude-availability', async (): Promise<boolean> 
     });
 
     let output = '';
-    child.stdout.on('data', (data) => {
+    let stderr = '';
+    
+    child.stdout?.on('data', (data) => {
       output += data.toString();
+    });
+    
+    child.stderr?.on('data', (data) => {
+      stderr += data.toString();
     });
 
     child.on('close', (code) => {
-      const isAvailable = code === 0 && output.includes('claude');
-      console.log('🔍 Direct Claude Code availability check:', { isAvailable, code, output: output.trim() });
+      // More robust detection - check for Claude Code in output or successful exit with version info
+      const outputText = (output + stderr).toLowerCase();
+      const hasClaudeInOutput = outputText.includes('claude');
+      const hasVersionPattern = /\d+\.\d+\.\d+/.test(output + stderr);
+      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
+      
+      console.log('🔍 Enhanced Claude Code availability check:', { 
+        isAvailable, 
+        code, 
+        output: output.trim(), 
+        stderr: stderr.trim(),
+        hasClaudeInOutput,
+        hasVersionPattern
+      });
       resolve(isAvailable);
     });
 
     child.on('error', (error) => {
-      console.log('🔍 Direct Claude Code availability check failed:', error.message);
+      console.log('🔍 Enhanced Claude Code availability check failed:', error.message);
       resolve(false);
     });
 
-    // Timeout after 5 seconds
+    // Timeout after 3 seconds (reduced from 5)
     setTimeout(() => {
       child.kill();
+      console.log('🔍 Claude Code availability check timed out');
       resolve(false);
-    }, 5000);
+    }, 3000);
   });
 });
 
@@ -994,7 +1087,7 @@ app.on('before-quit', () => {
   console.log('🧹 Cleaning up terminal sessions before quit...');
   for (const [sessionId, session] of terminalSessions.entries()) {
     try {
-      session.process.kill('SIGTERM');
+      session.process.kill();
       console.log(`🗑️ Killed terminal session ${sessionId}`);
     } catch (error) {
       console.error(`Failed to kill terminal session ${sessionId}:`, error);
