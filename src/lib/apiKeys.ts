@@ -278,6 +278,11 @@ export const useApiKeyStore = create<ApiKeyStore>()(
           availableProviders.push('claude-code');
         }
 
+        // If Aider IPC exposed, consider it available (runtime CLI presence validated later)
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.aider) {
+          availableProviders.push('aider');
+        }
+
         return availableProviders;
       },
 
@@ -297,6 +302,7 @@ export const useApiKeyStore = create<ApiKeyStore>()(
 
         // Priority order for multiple providers
         const priorityOrder: ModelProvider[] = [
+          'aider',
           'claude-code',
           'anthropic', 
           'openai',

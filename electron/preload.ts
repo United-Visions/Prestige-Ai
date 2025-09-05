@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:execute', prompt, options),
   },
 
+  // Aider AI CLI operations
+  aider: {
+    checkAvailability: (): Promise<boolean> =>
+      ipcRenderer.invoke('aider:check-availability'),
+    execute: (prompt: string, options?: { cwd?: string; model?: string; apiKeySpec?: string }): Promise<string> =>
+      ipcRenderer.invoke('aider:execute', prompt, options),
+  },
+
   // File system operations
   fs: {
     readFile: (filePath: string): Promise<string> => 
@@ -167,6 +175,10 @@ declare global {
       claudeCode: {
         checkAvailability: () => Promise<boolean>
         execute: (prompt: string, options?: { cwd?: string }) => Promise<string>
+      }
+      aider: {
+        checkAvailability: () => Promise<boolean>
+        execute: (prompt: string, options?: { cwd?: string; model?: string; apiKeySpec?: string }) => Promise<string>
       }
       fs: {
         readFile: (filePath: string) => Promise<string>

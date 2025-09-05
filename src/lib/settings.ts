@@ -5,6 +5,7 @@ export const ModelProviderSchema = z.enum([
   "claude",
   "gemini", 
   "claude-code",
+  "aider",
   "auto",
   "ollama",
   "lmstudio",
@@ -117,6 +118,10 @@ export function isProviderConfigured(
 ): boolean {
   // Special handling for providers that don't need API keys
   if (provider === "claude-code" || provider === "auto") {
+    return true;
+  }
+  if (provider === "aider") {
+    // Aider can work with inline api key flags; treat as configured if CLI present (renderer will check)
     return true;
   }
 

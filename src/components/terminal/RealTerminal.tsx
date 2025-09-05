@@ -27,6 +27,8 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
   const terminalInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const sessionId = useRef<string | null>(null);
+  const claudeAvailableRef = useRef<boolean>(false);
+  const aiderAvailableRef = useRef<boolean>(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [errorReport, setErrorReport] = useState<ErrorReport | null>(null);
   
@@ -248,21 +250,36 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
       terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
       terminal.write('\x1b[1;32m    Claude Code Direct Terminal\x1b[0m\r\n');
       terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
-      terminal.write('\x1b[1;33mSpecial Commands:\x1b[0m\r\n');
-      terminal.write('  \x1b[1;36mfix\x1b[0m               - Auto-fix detected errors\r\n');
-      terminal.write('  \x1b[1;36mprestige-help\x1b[0m     - Show all available commands\r\n');
-      terminal.write('  \x1b[1;36mclaude --help\x1b[0m     - Show Claude Code CLI help\r\n');
+  terminal.write('\x1b[1;33mSpecial Commands:\x1b[0m\r\n');
+  terminal.write('  \x1b[1;36mfix\x1b[0m               - Auto-fix detected errors (Claude/Aider)\r\n');
+  terminal.write('  \x1b[1;36mprestige-help\x1b[0m     - Show all available commands\r\n');
+  terminal.write('  \x1b[1;36mclaude --help\x1b[0m     - Claude Code CLI help\r\n');
+  terminal.write('  \x1b[1;36maider --help\x1b[0m      - Aider CLI help\r\n');
       terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n');
       terminal.write('\x1b[1;33mNote: This is a simplified terminal. For full shell features, use your system terminal.\x1b[0m\r\n');
       terminal.write('\x1b[1;32m' + '='.repeat(60) + '\x1b[0m\r\n\r\n');
 
       // Check Claude Code availability
   const isClaudeAvailable = await window.electronAPI?.terminal.checkClaudeAvailability();
+  claudeAvailableRef.current = !!isClaudeAvailable;
+  let aiderAvailable = false;
+  try {
+        if ((window as any).electronAPI?.aider) {
+          aiderAvailable = await (window as any).electronAPI.aider.checkAvailability();
+        }
+      } catch {}
+      aiderAvailableRef.current = aiderAvailable;
       if (!isClaudeAvailable) {
         terminal.write('\x1b[1;31m⚠ Warning: Claude Code CLI not found in PATH\x1b[0m\r\n');
         terminal.write('\x1b[1;33mTip: Install Claude Code CLI to use direct commands\x1b[0m\r\n\r\n');
       } else {
         terminal.write('\x1b[1;32m✓ Claude Code CLI detected and ready\x1b[0m\r\n\r\n');
+      }
+      if (!aiderAvailable) {
+        terminal.write('\x1b[1;31m⚠ Aider CLI not found in PATH\x1b[0m\r\n');
+        terminal.write('\x1b[1;33mInstall: pip install aider-install && aider-install\x1b[0m\r\n\r\n');
+      } else {
+        terminal.write('\x1b[1;32m✓ Aider CLI detected and ready\x1b[0m\r\n\r\n');
       }
 
       // Show a simple prompt
@@ -298,7 +315,16 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         const errorPrompt = (window as any).prestigeErrorPrompt;
         if (errorPrompt) {
           terminal.write('\x1b[1;32m🔧 Executing fix command with preview panel errors...\x1b[0m\r\n');
-          const fixCommand = `claude "${errorPrompt.replace(/"/g, '\\"')}"`;
+          const escaped = errorPrompt.replace(/"/g, '\\"');
+          const fixCommand = claudeAvailableRef.current
+            ? `claude "${escaped}"`
+            : aiderAvailableRef.current
+              ? `aider "${escaped}"`
+              : '';
+          if (!fixCommand) {
+            terminal.write('\x1b[1;31m✗ Neither Claude Code nor Aider CLI available for fix\x1b[0m\r\n');
+            return true;
+          }
           if (sessionId.current) {
             // Send the claude command directly
             window.electronAPI?.terminal.write(sessionId.current, fixCommand + '\n');
@@ -310,7 +336,16 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
           // Use current terminal errors
           terminal.write('\x1b[1;32m🔧 Executing fix command with detected errors...\x1b[0m\r\n');
           const currentErrorPrompt = errorService.generateErrorFixPrompt(errorReport);
-          const fixCommand = `claude "${currentErrorPrompt.replace(/"/g, '\\"')}"`;
+          const escaped2 = currentErrorPrompt.replace(/"/g, '\\"');
+          const fixCommand = claudeAvailableRef.current
+            ? `claude "${escaped2}"`
+            : aiderAvailableRef.current
+              ? `aider "${escaped2}"`
+              : '';
+          if (!fixCommand) {
+            terminal.write('\x1b[1;31m✗ Neither Claude Code nor Aider CLI available for fix\x1b[0m\r\n');
+            return true;
+          }
           if (sessionId.current) {
             window.electronAPI?.terminal.write(sessionId.current, fixCommand + '\n');
           }
@@ -330,9 +365,14 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
         terminal.write('  prestige-help      - Show this help message\r\n');
         terminal.write('  clear-errors       - Clear current error report\r\n');
         terminal.write('\r\n');
-        terminal.write('\x1b[1;33mClaude Code Commands:\x1b[0m\r\n');
-        terminal.write('  claude "message"   - Send message to Claude Code CLI\r\n');
-        terminal.write('  claude --help      - Show Claude Code help\r\n');
+  terminal.write('\x1b[1;33mClaude Code Commands:\x1b[0m\r\n');
+  terminal.write('  claude "message"   - Send message to Claude Code CLI\r\n');
+  terminal.write('  claude --help      - Show Claude Code help\r\n');
+  terminal.write('\x1b[1;33mAider Commands:\x1b[0m\r\n');
+  terminal.write('  aider --model deepseek --api-key deepseek=<key> "prompt"\r\n');
+  terminal.write('  aider --model sonnet --api-key anthropic=<key> "prompt"\r\n');
+  terminal.write('  aider --model o3-mini --api-key openai=<key> "prompt"\r\n');
+  terminal.write('  aider --model gemini "prompt" (uses configured key)\r\n');
         terminal.write('\r\n');
         terminal.write('\x1b[1;33mTips:\x1b[0m\r\n');
         terminal.write('  • Run your app in Preview mode to detect build errors\r\n');
@@ -406,7 +446,16 @@ export function RealTerminal({ onClose }: RealTerminalProps) {
     }
 
     const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
-    const fixCommand = `claude "${errorPrompt.replace(/"/g, '\\"')}"`;
+    const escaped = errorPrompt.replace(/"/g, '\\"');
+    const fixCommand = claudeAvailableRef.current
+      ? `claude "${escaped}"`
+      : aiderAvailableRef.current
+        ? `aider "${escaped}"`
+        : '';
+    if (!fixCommand) {
+      showToast('No CLI (Claude/Aider) available for fixing', 'error');
+      return;
+    }
     window.electronAPI?.terminal.write(sessionId.current, fixCommand + '\n');
     
     // Clear the error report since we're attempting to fix

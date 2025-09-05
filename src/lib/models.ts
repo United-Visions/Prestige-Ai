@@ -9,6 +9,7 @@ export const ModelProviderSchema = z.enum([
   "lmstudio",
   "openrouter",
   "claude-code",
+  "aider",
 ]);
 
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
@@ -193,7 +194,21 @@ export const claudeCodeModels: LargeLanguageModel[] = [
   }
 ];
 
-export const allModels = [...openaiModels, ...anthropicModels, ...googleModels, ...openrouterModels, ...autoModels, ...claudeCodeModels];
+// Aider CLI model (meta wrapper; actual underlying model chosen via CLI flags)
+export const aiderModels: LargeLanguageModel[] = [
+  {
+    name: "aider-cli",
+    provider: "aider",
+    requiresApiKey: false, // Provided inline to CLI when needed
+    requiresCli: true,
+    cost: "Depends on backend (DeepSeek/Claude/OpenAI/Gemini)",
+    contextWindow: 200000,
+    maxOutputTokens: 8000,
+    description: "Aider AI CLI wrapper supporting multi-provider editing"
+  }
+];
+
+export const allModels = [...openaiModels, ...anthropicModels, ...googleModels, ...openrouterModels, ...autoModels, ...claudeCodeModels, ...aiderModels];
 
 export const modelProviders = [
   {
@@ -248,6 +263,15 @@ export const modelProviders = [
     models: claudeCodeModels,
     apiKeyRequired: false,
     icon: "💻",
+    envVar: undefined
+  }
+  ,{
+    id: "aider" as const,
+    name: "Aider",
+    description: "Aider CLI (DeepSeek, Claude, OpenAI, Gemini)",
+    models: aiderModels,
+    apiKeyRequired: false,
+    icon: "🛠️",
     envVar: undefined
   }
 ];

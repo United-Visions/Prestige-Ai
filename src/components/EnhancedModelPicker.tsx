@@ -64,6 +64,14 @@ export function EnhancedModelPicker({
       }
     }
     
+    if (model.name === 'aider-cli') {
+      // Treat as ready if IPC available
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.aider) {
+        return <Terminal className="h-3 w-3 text-blue-500" />;
+      } else {
+        return <AlertCircle className="h-3 w-3 text-orange-500" />;
+      }
+    }
     switch (availability.status) {
       case 'ready':
         return <CheckCircle className="h-3 w-3 text-green-500" />;
@@ -103,6 +111,12 @@ export function EnhancedModelPicker({
       }
     }
     
+    if (model.name === 'aider-cli') {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.aider) {
+        return <Badge variant="outline" className="text-blue-600 border-blue-200">CLI Ready</Badge>;
+      }
+      return <Badge variant="outline" className="text-orange-600 border-orange-200">Install Needed</Badge>;
+    }
     switch (availability.status) {
       case 'ready':
         return <Badge variant="outline" className="text-green-600 border-green-200">Ready</Badge>;
@@ -132,6 +146,12 @@ export function EnhancedModelPicker({
     }
     
     const availability = getModelAvailability(selectedModel.name, selectedModel.provider);
+    if (selectedModel.name === 'aider-cli') {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.aider) {
+        return { icon: <Terminal className="h-4 w-4 text-blue-500" />, text: 'CLI Ready' };
+      }
+      return { icon: <AlertCircle className="h-4 w-4 text-orange-500" />, text: 'Install Aider' };
+    }
     switch (availability.status) {
       case 'ready':
         return { icon: <CheckCircle className="h-4 w-4 text-green-500" />, text: "Ready" };

@@ -331,6 +331,60 @@ ipcMain.handle('claude-code:execute', async (event, prompt: string, options: { c
   });
 });
 
+// IPC Handlers for Aider AI CLI integration
+ipcMain.handle('aider:check-availability', async (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const childProcess = spawn('aider', ['--version'], {
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    childProcess.on('close', (code: number | null) => {
+      resolve(code === 0);
+    });
+    childProcess.on('error', () => resolve(false));
+  });
+});
+
+ipcMain.handle('aider:execute', async (event, prompt: string, options: { cwd?: string; model?: string; apiKeySpec?: string } = {}): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const desktopPath = app.getPath('desktop');
+    const prestigeAIPath = join(desktopPath, 'prestige-ai');
+    const { cwd = prestigeAIPath, model, apiKeySpec } = options;
+
+    const tempFileName = `prestige-ai-aider-prompt-${Date.now()}-${Math.random().toString(36).substr(2,9)}.txt`;
+    const tempFilePath = join(tmpdir(), tempFileName);
+    try {
+      writeFileSync(tempFilePath, prompt, 'utf8');
+      const cleanup = () => {
+        try { if (existsSync(tempFilePath)) unlinkSync(tempFilePath); } catch {}
+      };
+      const args: string[] = [];
+      if (model) args.push('--model', model);
+      if (apiKeySpec) args.push('--api-key', apiKeySpec);
+      // Use --yes to auto-apply when editing, --no-auto-commits to avoid git commits if user repo not initialized
+      args.push('--yes', '--no-auto-commits', tempFilePath);
+      const childProcess = spawn('aider', args, { cwd, shell: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env } });
+      let stdout = '';
+      let stderr = '';
+      childProcess.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
+      childProcess.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+      childProcess.on('close', (code: number | null) => {
+        cleanup();
+        if (code === 0) {
+          resolve(stdout.trim() || '');
+        } else {
+          reject(new Error(`Aider failed (exit code ${code}): ${(stderr || stdout || 'Unknown error').trim()}`));
+        }
+      });
+      childProcess.on('error', (err: Error) => { cleanup(); reject(new Error(`Failed to execute Aider: ${err.message}`)); });
+      process.once('SIGINT', cleanup);
+      process.once('SIGTERM', cleanup);
+    } catch (e:any) {
+      reject(new Error(`Failed to run Aider: ${e.message}`));
+    }
+  });
+});
+
 // IPC Handlers for Database
 ipcMain.handle('db:get-apps', async () => {
   return db.query.apps.findMany();
