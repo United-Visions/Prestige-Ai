@@ -8,8 +8,6 @@ export const ModelProviderSchema = z.enum([
   "ollama",
   "lmstudio",
   "openrouter",
-  "claude-code",
-  "aider",
 ]);
 
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
@@ -165,6 +163,54 @@ export const openrouterModels: LargeLanguageModel[] = [
   }
 ];
 
+// Ollama models (local)
+export const ollamaModels: LargeLanguageModel[] = [
+  {
+    name: "llama3.3:70b",
+    provider: "ollama",
+    requiresApiKey: false,
+    requiresCli: false,
+    cost: "Free (local)",
+    contextWindow: 128000,
+    maxOutputTokens: 32000,
+    description: "Meta's Llama 3.3 70B model running locally"
+  },
+  {
+    name: "deepseek-r1:32b",
+    provider: "ollama",
+    requiresApiKey: false,
+    requiresCli: false,
+    cost: "Free (local)",
+    contextWindow: 128000,
+    maxOutputTokens: 32000,
+    description: "DeepSeek R1 32B reasoning model running locally"
+  },
+  {
+    name: "qwen2.5-coder:32b",
+    provider: "ollama",
+    requiresApiKey: false,
+    requiresCli: false,
+    cost: "Free (local)",
+    contextWindow: 128000,
+    maxOutputTokens: 32000,
+    description: "Alibaba's Qwen 2.5 Coder model for programming tasks"
+  }
+];
+
+// LM Studio models (local)
+export const lmstudioModels: LargeLanguageModel[] = [
+  {
+    name: "local-model",
+    provider: "lmstudio",
+    requiresApiKey: false,
+    requiresCli: false,
+    cost: "Free (local)",
+    contextWindow: 128000,
+    maxOutputTokens: 32000,
+    description: "Any model running in LM Studio"
+  }
+];
+
 // Auto models
 export const autoModels: LargeLanguageModel[] = [
   {
@@ -180,35 +226,8 @@ export const autoModels: LargeLanguageModel[] = [
   }
 ];
 
-// Claude Code models
-export const claudeCodeModels: LargeLanguageModel[] = [
-  {
-    name: "claude-code",
-    provider: "claude-code",
-    requiresApiKey: false,
-    requiresCli: true,
-    cost: "CLI-based",
-    contextWindow: 200000,
-    maxOutputTokens: 8000,
-    description: "Premium AI assistant with advanced code understanding and tool access"
-  }
-];
 
-// Aider CLI model (meta wrapper; actual underlying model chosen via CLI flags)
-export const aiderModels: LargeLanguageModel[] = [
-  {
-    name: "aider-cli",
-    provider: "aider",
-    requiresApiKey: false, // Provided inline to CLI when needed
-    requiresCli: true,
-    cost: "Depends on backend (DeepSeek/Claude/OpenAI/Gemini)",
-    contextWindow: 200000,
-    maxOutputTokens: 8000,
-    description: "Aider AI CLI wrapper supporting multi-provider editing"
-  }
-];
-
-export const allModels = [...openaiModels, ...anthropicModels, ...googleModels, ...openrouterModels, ...autoModels, ...claudeCodeModels, ...aiderModels];
+export const allModels = [...openaiModels, ...anthropicModels, ...googleModels, ...openrouterModels, ...ollamaModels, ...lmstudioModels, ...autoModels];
 
 export const modelProviders = [
   {
@@ -248,30 +267,30 @@ export const modelProviders = [
     envVar: "OPENROUTER_API_KEY"
   },
   {
+    id: "ollama" as const,
+    name: "Ollama",
+    description: "Run open source models locally",
+    models: ollamaModels,
+    apiKeyRequired: false,
+    icon: "🦙",
+    envVar: undefined
+  },
+  {
+    id: "lmstudio" as const,
+    name: "LM Studio",
+    description: "Run models locally with LM Studio",
+    models: lmstudioModels,
+    apiKeyRequired: false,
+    icon: "💻",
+    envVar: undefined
+  },
+  {
     id: "auto" as const,
     name: "Auto",
     description: "Automatically selects the best model",
     models: autoModels,
     apiKeyRequired: false,
     icon: "⚡",
-    envVar: undefined
-  },
-  {
-    id: "claude-code" as const,
-    name: "Claude Code",
-    description: "Premium AI with CLI integration",
-    models: claudeCodeModels,
-    apiKeyRequired: false,
-    icon: "💻",
-    envVar: undefined
-  }
-  ,{
-    id: "aider" as const,
-    name: "Aider",
-    description: "Aider CLI (DeepSeek, Claude, OpenAI, Gemini)",
-    models: aiderModels,
-    apiKeyRequired: false,
-    icon: "🛠️",
     envVar: undefined
   }
 ];

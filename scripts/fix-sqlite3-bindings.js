@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 console.log('🔧 Fixing better-sqlite3 binary paths...');
 
@@ -20,28 +21,52 @@ if (!fs.existsSync(sqlite3Dir)) {
   process.exit(0);
 }
 
-// Find the actual binary
-const binDir = path.join(sqlite3Dir, 'bin');
-let binaryPath = null;
-
-if (fs.existsSync(binDir)) {
-  // Look for the binary in subdirectories
-  const binSubdirs = fs.readdirSync(binDir, { withFileTypes: true })
-    .filter(dirent => dirent.isDirectory())
-    .map(dirent => dirent.name);
-  
-  for (const subdir of binSubdirs) {
-    const candidatePath = path.join(binDir, subdir, 'better-sqlite3.node');
-    if (fs.existsSync(candidatePath)) {
-      binaryPath = candidatePath;
-      console.log(`✅ Found binary at: ${candidatePath}`);
-      break;
-    }
+// Helper: attempt rebuild if missing
+function attemptRebuild() {
+  console.log('🛠  Attempting electron-rebuild for better-sqlite3...');
+  const result = spawnSync(process.execPath, [
+    require.resolve('.bin/electron-rebuild').replace(/\\/g, '/'),
+    '-f',
+    '-w',
+    'better-sqlite3'
+  ], { stdio: 'inherit' });
+  if (result.error || result.status !== 0) {
+    console.warn('⚠️  electron-rebuild did not complete successfully. You may need to run `pnpm run rebuild` manually.');
+  } else {
+    console.log('✅ electron-rebuild completed.');
   }
 }
 
+// Find the actual binary
+function locateBinary() {
+  const binDir = path.join(sqlite3Dir, 'bin');
+  if (fs.existsSync(binDir)) {
+    const binSubdirs = fs.readdirSync(binDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => dirent.name);
+    for (const subdir of binSubdirs) {
+      const candidatePath = path.join(binDir, subdir, 'better-sqlite3.node');
+      if (fs.existsSync(candidatePath)) {
+        console.log(`✅ Found binary at: ${candidatePath}`);
+        return candidatePath;
+      }
+    }
+  }
+  return null;
+}
+
+let binaryPath = locateBinary();
+
+// If we did not find a binary, attempt rebuild once
 if (!binaryPath) {
-  console.log('❌ Could not find better-sqlite3 binary');
+  console.log('ℹ️  No compiled better-sqlite3 binary found yet. Will attempt rebuild.');
+  attemptRebuild();
+  binaryPath = locateBinary();
+}
+
+if (!binaryPath) {
+  console.log('❌ Could not find better-sqlite3 binary after rebuild attempt.');
+  console.log('   Try manually running: pnpm run rebuild');
   process.exit(1);
 }
 

@@ -2,6 +2,21 @@ const { fs, path, app } = window.electronAPI;
 import { DEFAULT_TEMPLATE_ID, getTemplateOrThrow } from "./index";
 import { copyDirectoryRecursive } from "../utils/file_utils";
 
+// Simple Git clone implementation using fetch API
+interface GitHubApiContent {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  download_url?: string;
+  url: string;
+}
+
+interface CloneProgress {
+  step: string;
+  progress: number;
+  total: number;
+}
+
 export interface CreateFromTemplateOptions {
   fullAppPath: string;
   templateId?: string;
@@ -157,7 +172,7 @@ async function ensureDevScript(appPath: string, templateId: string) {
 }
 
 
-async function cloneRepo(repoUrl: string): Promise<string> {
+async function cloneRepo(repoUrl: string, onProgress?: (progress: CloneProgress) => void): Promise<string> {
   const url = new URL(repoUrl);
   if (url.protocol !== "https:") {
     throw new Error("Repository URL must use HTTPS.");
@@ -182,6 +197,9 @@ async function cloneRepo(repoUrl: string): Promise<string> {
     );
   }
 
+  console.log(`Cloning repository: ${orgName}/${repoBasename}`);
+  onProgress?.({ step: "Initializing", progress: 0, total: 100 });
+
   const appDataPath = await app.getAppDataPath();
   const cachePath = await path.join(
     appDataPath,
@@ -190,14 +208,190 @@ async function cloneRepo(repoUrl: string): Promise<string> {
     repoBasename
   );
 
-  if (await fs.pathExists(cachePath)) {
+  // Check if we should update cached repository
+  const shouldUpdate = await shouldUpdateCachedRepo(cachePath, orgName, repoBasename);
+  
+  if (await fs.pathExists(cachePath) && !shouldUpdate) {
     console.info(`Using cached template at ${cachePath}`);
+    onProgress?.({ step: "Using cached version", progress: 100, total: 100 });
     return cachePath;
   }
 
-  // For now, we'll use a simple download approach
-  // In a real implementation, you'd use isomorphic-git or similar
-  throw new Error("GitHub template cloning not yet implemented. Use local templates.");
+  // Remove existing cache if updating
+  if (shouldUpdate) {
+    console.log("Updating cached repository...");
+    await fs.remove(cachePath);
+  }
+
+  onProgress?.({ step: "Fetching repository contents", progress: 10, total: 100 });
+
+  // Download repository using GitHub API
+  await downloadGitHubRepo(orgName, repoBasename, cachePath, onProgress);
+  
+  onProgress?.({ step: "Repository cloned successfully", progress: 100, total: 100 });
+  console.info(`Repository cloned to ${cachePath}`);
+  return cachePath;
+}
+
+async function shouldUpdateCachedRepo(cachePath: string, orgName: string, repoName: string): Promise<boolean> {
+  try {
+    // Check if cache exists
+    if (!(await fs.pathExists(cachePath))) {
+      return false; // No cache, need to download
+    }
+
+    // Check if cache is older than 1 hour
+    const metaPath = await path.join(cachePath, '.prestige-cache-meta.json');
+    if (await fs.pathExists(metaPath)) {
+      const metaContent = await fs.readFile(metaPath);
+      const meta = JSON.parse(metaContent);
+      const oneHourAgo = Date.now() - (60 * 60 * 1000);
+      
+      if (meta.timestamp > oneHourAgo) {
+        return false; // Cache is fresh
+      }
+    }
+
+    // Check if remote has updates by comparing with GitHub API
+    const apiUrl = `https://api.github.com/repos/${orgName}/${repoName}/commits/HEAD`;
+    try {
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Prestige-AI'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const remoteSha = data.sha;
+        
+        // Compare with cached SHA
+        const metaPath = await path.join(cachePath, '.prestige-cache-meta.json');
+        if (await fs.pathExists(metaPath)) {
+          const metaContent = await fs.readFile(metaPath);
+          const meta = JSON.parse(metaContent);
+          
+          if (meta.sha === remoteSha) {
+            // Update timestamp but keep cache
+            meta.timestamp = Date.now();
+            await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
+            return false;
+          }
+        }
+        
+        return true; // Different SHA, need to update
+      }
+    } catch (error) {
+      console.warn('Failed to check for remote updates:', error);
+    }
+    
+    return false; // Default to using cache
+  } catch (error) {
+    console.warn('Error checking cache status:', error);
+    return true; // When in doubt, update
+  }
+}
+
+async function downloadGitHubRepo(orgName: string, repoName: string, targetPath: string, onProgress?: (progress: CloneProgress) => void): Promise<void> {
+  const apiUrl = `https://api.github.com/repos/${orgName}/${repoName}/contents`;
+  
+  // Ensure target directory exists
+  await fs.ensureDir(targetPath);
+  
+  // Get latest commit SHA for caching
+  let latestSha: string | undefined;
+  try {
+    const commitsResponse = await fetch(`https://api.github.com/repos/${orgName}/${repoName}/commits/HEAD`, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Prestige-AI'
+      }
+    });
+    
+    if (commitsResponse.ok) {
+      const commitData = await commitsResponse.json();
+      latestSha = commitData.sha;
+    }
+  } catch (error) {
+    console.warn('Failed to get latest commit SHA:', error);
+  }
+  
+  onProgress?.({ step: "Downloading files", progress: 20, total: 100 });
+  
+  // Download all files recursively
+  await downloadDirectory(apiUrl, targetPath, onProgress, 20, 80);
+  
+  // Create cache metadata
+  const metaPath = await path.join(targetPath, '.prestige-cache-meta.json');
+  const metadata = {
+    orgName,
+    repoName,
+    timestamp: Date.now(),
+    sha: latestSha,
+  };
+  await fs.writeFile(metaPath, JSON.stringify(metadata, null, 2));
+  
+  onProgress?.({ step: "Processing completed", progress: 90, total: 100 });
+}
+
+async function downloadDirectory(apiUrl: string, targetPath: string, onProgress?: (progress: CloneProgress) => void, startProgress: number = 0, endProgress: number = 100): Promise<void> {
+  try {
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Prestige-AI'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const contents: GitHubApiContent[] = await response.json();
+    
+    // Filter out unwanted files and directories
+    const filteredContents = contents.filter(item => {
+      const excludedDirs = ['.git', 'node_modules', '.DS_Store', '.gitignore'];
+      const excludedFiles = ['.gitignore', '.DS_Store'];
+      
+      if (item.type === 'dir' && excludedDirs.includes(item.name)) {
+        return false;
+      }
+      if (item.type === 'file' && excludedFiles.includes(item.name)) {
+        return false;
+      }
+      
+      return true;
+    });
+    
+    const totalItems = filteredContents.length;
+    let completedItems = 0;
+    
+    for (const item of filteredContents) {
+      const itemPath = await path.join(targetPath, item.name);
+      
+      if (item.type === 'file' && item.download_url) {
+        // Download file
+        const fileResponse = await fetch(item.download_url);
+        if (fileResponse.ok) {
+          const content = await fileResponse.text();
+          await fs.writeFile(itemPath, content);
+        }
+      } else if (item.type === 'dir') {
+        // Create directory and download recursively
+        await fs.ensureDir(itemPath);
+        await downloadDirectory(item.url, itemPath);
+      }
+      
+      completedItems++;
+      const progress = startProgress + ((completedItems / totalItems) * (endProgress - startProgress));
+      onProgress?.({ step: `Processing ${item.name}`, progress, total: 100 });
+    }
+  } catch (error) {
+    console.error('Failed to download directory:', error);
+    throw error;
+  }
 }
 
 async function ensurePostCSSConfig(appPath: string) {
@@ -227,9 +421,27 @@ async function ensurePostCSSConfig(appPath: string) {
   }
 }
 
-async function copyRepoToApp(_repoCachePath: string, _appPath: string) {
-  // GitHub template cloning is not implemented yet
-  // This function is a placeholder for when GitHub templates are supported
-  console.warn("GitHub template cloning not implemented yet");
-  throw new Error("GitHub template cloning not yet implemented. Use local templates.");
+async function copyRepoToApp(repoCachePath: string, appPath: string) {
+  console.log(`Copying repository from ${repoCachePath} to ${appPath}`);
+  
+  try {
+    // Copy files to the 'files' subdirectory where viewer expects them
+    const filesPath = await path.join(appPath, "files");
+    
+    // Ensure the target directory exists
+    await fs.ensureDir(filesPath);
+    
+    // Copy all files except cache metadata
+    await copyDirectoryRecursive(repoCachePath, filesPath, {
+      filter: (src: string) => {
+        const basename = path.basename ? path.basename(src) : src.split('/').pop() || '';
+        return basename !== '.prestige-cache-meta.json';
+      }
+    });
+    
+    console.log('Repository contents copied successfully');
+  } catch (error) {
+    console.error('Error copying repository:', error);
+    throw new Error(`Failed to copy repository contents: ${error.message}`);
+  }
 }

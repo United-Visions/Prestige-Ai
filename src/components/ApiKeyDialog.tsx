@@ -5,204 +5,248 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Eye, EyeOff, Key, AlertCircle, CheckCircle } from 'lucide-react';
-import { Provider, getApiKey, setApiKey, validateApiKey, checkClaudeCodeCLI } from '@/lib/apiKeys';
+import { Eye, EyeOff, Key, AlertCircle, CheckCircle, Info } from 'lucide-react';
+import { useApiKeyStore } from '@/lib/apiKeys';
+import { modelProviders } from '@/lib/models';
+import type { ModelProvider } from '@/lib/models';
+
+// Helper function to mask ENV API keys
+const maskEnvApiKey = (key: string | undefined): string => {
+  if (!key) return 'Not Set';
+  if (key.length < 8) return '****';
+  return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
+};
 
 interface ApiKeyDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  provider?: Provider;
+  provider?: ModelProvider;
 }
 
 export function ApiKeyDialog({ isOpen, onClose }: ApiKeyDialogProps) {
-  const [apiKeys, setApiKeys] = useState<Record<Provider, string>>({
-    anthropic: '',
-    google: '',
-  });
-  const [showKeys, setShowKeys] = useState<Record<Provider, boolean>>({
-    anthropic: false,
-    google: false,
-  });
-  const [validationStatus, setValidationStatus] = useState<Record<Provider, boolean | null>>({
-    anthropic: null,
-    google: null,
-  });
-  const [claudeCodeStatus, setClaudeCodeStatus] = useState<boolean | null>(null);
-  const [isValidating, setIsValidating] = useState(false);
+  const [showKeys, setShowKeys] = useState<Record<ModelProvider, boolean>>({} as Record<ModelProvider, boolean>);
+  const [envVars, setEnvVars] = useState<Record<string, string | undefined>>({});
+  const { getApiKey, setApiKey, removeApiKey, getProviderStatus, refreshEnvVars } = useApiKeyStore();
 
+  const providers = modelProviders.filter(p => p.apiKeyRequired);
+
+  // Load environment variables when dialog opens
   useEffect(() => {
-    if (isOpen) {
-      // Load existing API keys
-      const anthropicKey = getApiKey('anthropic');
-      const googleKey = getApiKey('google');
-      
-      setApiKeys({
-        anthropic: anthropicKey || '',
-        google: googleKey || '',
+    if (isOpen && window.electronAPI) {
+      window.electronAPI.getAllEnvVars().then(vars => {
+        setEnvVars(vars);
+        refreshEnvVars();
       });
-
-      // Check Claude Code CLI availability
-      checkClaudeCodeCLI().then(setClaudeCodeStatus);
-
-      // Validate existing keys
-      if (anthropicKey) validateKey('anthropic', anthropicKey);
-      if (googleKey) validateKey('google', googleKey);
     }
-  }, [isOpen]);
+  }, [isOpen, refreshEnvVars]);
 
-  const validateKey = async (provider: Provider, key: string) => {
-    if (!key.trim()) {
-      setValidationStatus(prev => ({ ...prev, [provider]: null }));
-      return;
-    }
-
-    setIsValidating(true);
-    try {
-      const isValid = await validateApiKey(provider, key);
-      setValidationStatus(prev => ({ ...prev, [provider]: isValid }));
-    } catch (error) {
-      console.error(`Failed to validate ${provider} API key:`, error);
-      setValidationStatus(prev => ({ ...prev, [provider]: false }));
-    } finally {
-      setIsValidating(false);
-    }
-  };
-
-  const handleSaveKey = (provider: Provider) => {
-    const key = apiKeys[provider];
+  const handleSetApiKey = (provider: ModelProvider, key: string) => {
     if (key.trim()) {
-      setApiKey(provider, key);
-      validateKey(provider, key);
+      setApiKey(provider, key.trim());
     } else {
-      // Remove key if empty
-      setApiKey(provider, '');
-      setValidationStatus(prev => ({ ...prev, [provider]: null }));
+      removeApiKey(provider);
     }
   };
 
-  const toggleShowKey = (provider: Provider) => {
-    setShowKeys(prev => ({ ...prev, [provider]: !prev[provider] }));
+  const toggleShowKey = (provider: ModelProvider) => {
+    setShowKeys(prev => ({
+      ...prev,
+      [provider]: !prev[provider]
+    }));
   };
 
-  const getStatusBadge = (provider: Provider) => {
-    const status = validationStatus[provider];
-    if (status === null) {
-      return <Badge variant="outline">Not Set</Badge>;
+  const getStatusBadge = (provider: ModelProvider) => {
+    const status = getProviderStatus(provider);
+    const currentKey = getApiKey(provider.id);
+    const envKey = provider.envVar ? envVars[provider.envVar] : undefined;
+    
+    const hasUserKey = !!currentKey;
+    const hasEnvKey = !!envKey;
+    
+    if (hasUserKey || hasEnvKey) {
+      return <Badge variant="outline" className="text-green-600 border-green-200">✓ Configured</Badge>;
+    } else {
+      return <Badge variant="outline" className="text-gray-600 border-gray-200">Not Set</Badge>;
     }
-    return status ? (
-      <Badge className="bg-green-100 text-green-700">
-        <CheckCircle className="w-3 h-3 mr-1" />
-        Valid
-      </Badge>
-    ) : (
-      <Badge className="bg-red-100 text-red-700">
-        <AlertCircle className="w-3 h-3 mr-1" />
-        Invalid
-      </Badge>
-    );
   };
-
-  const providers: { key: Provider; name: string; description: string }[] = [
-    {
-      key: 'anthropic',
-      name: 'Anthropic',
-      description: 'Claude 3.5 Sonnet, Haiku, Opus models',
-    },
-    {
-      key: 'google',
-      name: 'Google AI',
-      description: 'Gemini 1.5 Pro, Flash, 2.0 experimental models',
-    },
-  ];
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="w-5 h-5" />
-            API Key Management
+            API Keys Management
           </DialogTitle>
         </DialogHeader>
-        
-        <div className="space-y-6 py-4">
-          {providers.map(({ key, name, description }) => (
-            <div key={key} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-medium">{name}</Label>
-                  <p className="text-xs text-gray-500">{description}</p>
+
+        <div className="space-y-4">
+          {providers.map((provider) => {
+            const currentKey = getApiKey(provider.id) || '';
+            const isVisible = showKeys[provider.id] || false;
+            const status = getProviderStatus(provider.id);
+            const envApiKey = provider.envVar ? envVars[provider.envVar] : undefined;
+            const hasEnvKey = !!envApiKey;
+            
+            const isValidUserKey = !!currentKey && !currentKey.startsWith('Invalid Key') && currentKey !== 'Not Set';
+            const activeKeySource = isValidUserKey ? 'settings' : hasEnvKey ? 'env' : 'none';
+            
+            const defaultAccordionValue = [];
+            if (isValidUserKey || !hasEnvKey) {
+              defaultAccordionValue.push('settings-key');
+            }
+            if (hasEnvKey) {
+              defaultAccordionValue.push('env-key');
+            }
+
+            return (
+              <div key={provider.id} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{provider.icon}</span>
+                    <div>
+                      <h3 className="font-medium">{provider.name}</h3>
+                      <p className="text-sm text-muted-foreground">{provider.description}</p>
+                    </div>
+                  </div>
+                  {getStatusBadge(provider.id)}
                 </div>
-                {getStatusBadge(key)}
-              </div>
-              
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={showKeys[key] ? 'text' : 'password'}
-                    value={apiKeys[key]}
-                    onChange={(e) => setApiKeys(prev => ({ ...prev, [key]: e.target.value }))}
-                    placeholder={`Enter ${name} API key...`}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => toggleShowKey(key)}
-                  >
-                    {showKeys[key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <Button
-                  onClick={() => handleSaveKey(key)}
-                  disabled={isValidating}
-                  size="sm"
+
+                <Accordion
+                  type="multiple"
+                  className="w-full space-y-2"
+                  defaultValue={defaultAccordionValue}
                 >
-                  Save
-                </Button>
-              </div>
-            </div>
-          ))}
+                  <AccordionItem value="settings-key" className="border rounded-lg px-4">
+                    <AccordionTrigger className="text-sm font-medium hover:no-underline">
+                      API Key from Settings
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-4">
+                      {isValidUserKey && (
+                        <Alert className="mb-4">
+                          <Key className="h-4 w-4" />
+                          <AlertTitle className="flex justify-between items-center">
+                            <span>Current Key (Settings)</span>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleSetApiKey(provider.id, '')}
+                              className="flex items-center gap-1 h-7 px-2"
+                            >
+                              Remove
+                            </Button>
+                          </AlertTitle>
+                          <AlertDescription>
+                            <p className="font-mono text-sm">{maskEnvApiKey(currentKey)}</p>
+                            {activeKeySource === 'settings' && (
+                              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                This key is currently active.
+                              </p>
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor={`${provider.id}-key`}>
+                          {isValidUserKey ? 'Update' : 'Set'} {provider.name} API Key
+                        </Label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Input
+                              id={`${provider.id}-key`}
+                              type={isVisible ? 'text' : 'password'}
+                              value={currentKey}
+                              onChange={(e) => handleSetApiKey(provider.id, e.target.value)}
+                              placeholder={`Enter new ${provider.name} API key here`}
+                              className="pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => toggleShowKey(provider.id)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                            >
+                              {isVisible ? (
+                                <EyeOff className="w-4 h-4" />
+                              ) : (
+                                <Eye className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Setting a key here will override the environment variable (if set).
+                        </p>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
 
-          {/* Claude Code CLI Status */}
-          <div className="border-t pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Claude Code CLI</Label>
-                <p className="text-xs text-gray-500">Standalone CLI for Claude models</p>
+                  {provider.envVar && (
+                    <AccordionItem value="env-key" className="border rounded-lg px-4">
+                      <AccordionTrigger className="text-sm font-medium hover:no-underline">
+                        API Key from Environment Variable
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-4">
+                        {hasEnvKey ? (
+                          <Alert>
+                            <Key className="h-4 w-4" />
+                            <AlertTitle>Environment Variable Key ({provider.envVar})</AlertTitle>
+                            <AlertDescription>
+                              <p className="font-mono text-sm">
+                                {maskEnvApiKey(envApiKey)}
+                              </p>
+                              {activeKeySource === 'env' && (
+                                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                  This key is currently active (no settings key set).
+                                </p>
+                              )}
+                              {activeKeySource === 'settings' && (
+                                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                                  This key is currently being overridden by the key set in Settings.
+                                </p>
+                              )}
+                            </AlertDescription>
+                          </Alert>
+                        ) : (
+                          <Alert>
+                            <Info className="h-4 w-4" />
+                            <AlertTitle>Environment Variable Not Set</AlertTitle>
+                            <AlertDescription>
+                              The{' '}
+                              <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">
+                                {provider.envVar}
+                              </code>{' '}
+                              environment variable is not set.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                          This key is set outside the application. If present, it will be used only if no key is configured in the Settings section above. Requires app restart to detect changes.
+                        </p>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                </Accordion>
               </div>
-              {claudeCodeStatus === null ? (
-                <Badge variant="outline">Checking...</Badge>
-              ) : claudeCodeStatus ? (
-                <Badge className="bg-green-100 text-green-700">
-                  <CheckCircle className="w-3 h-3 mr-1" />
-                  Available
-                </Badge>
-              ) : (
-                <Badge className="bg-yellow-100 text-yellow-700">
-                  <AlertCircle className="w-3 h-3 mr-1" />
-                  Not Found
-                </Badge>
-              )}
-            </div>
-            {claudeCodeStatus === false && (
-              <p className="text-xs text-gray-500 mt-2">
-                Install Claude Code CLI to use Claude models without API keys
-              </p>
-            )}
+            );
+          })}
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="outline" onClick={onClose}>
+              Close
+            </Button>
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
         </div>
       </DialogContent>
     </Dialog>

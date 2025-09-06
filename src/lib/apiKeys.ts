@@ -1,6 +1,21 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ModelProvider, LargeLanguageModel, getModelsByProvider } from './models';
+import { ModelProvider, LargeLanguageModel, getModelsByProvider, getProviderInfo } from './models';
+
+// Environment variable detection
+function getEnvVar(name: string): string | undefined {
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    return window.electronAPI.getEnvVar(name);
+  }
+  return undefined;
+}
+
+// Helper function to mask ENV API keys
+function maskEnvApiKey(key: string | undefined): string {
+  if (!key) return 'Not Set';
+  if (key.length < 8) return '****';
+  return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
+}
 
 export interface ApiKeyStatus {
   provider: ModelProvider;
@@ -8,55 +23,77 @@ export interface ApiKeyStatus {
   isValid: boolean;
   lastChecked?: Date;
   errorMessage?: string;
+  hasEnvKey?: boolean;
+  envKeyValue?: string;
 }
 
-export interface ProviderStatus {
-  anthropic: {
-    apiKey: boolean;
-    cliAvailable: boolean;
-    cliVersion?: string;
-  };
-  google: {
-    apiKey: boolean;
-  };
+export interface ModelAvailability {
+  status: 'ready' | 'api_key_required' | 'unavailable';
+  message?: string;
 }
 
 interface ApiKeyStore {
   // API Keys (stored securely)
   apiKeys: Record<ModelProvider, string>;
   
+  // Environment variables cache
+  envVars: Record<string, string | undefined>;
+  
   // Status tracking
   apiKeyStatuses: Record<ModelProvider, ApiKeyStatus>;
-  cliStatus: {
-    claudeCodeAvailable: boolean;
-    version?: string;
-    lastChecked?: Date;
-    hasUsageLimit?: boolean;
-    error?: string;
-  };
   
   // Actions
   setApiKey: (provider: ModelProvider, key: string) => void;
   removeApiKey: (provider: ModelProvider) => void;
   getApiKey: (provider: ModelProvider) => string | null;
+  getEffectiveApiKey: (provider: ModelProvider) => string | null;
   validateApiKey: (provider: ModelProvider) => Promise<boolean>;
-  checkClaudeCodeCli: () => Promise<boolean>;
   getProviderStatus: (provider: ModelProvider) => ApiKeyStatus;
   updateProviderStatus: (provider: ModelProvider, status: Partial<ApiKeyStatus>) => void;
+  refreshEnvVars: () => void;
   getAvailableProviders: () => ModelProvider[];
   getRecommendedModel: () => LargeLanguageModel | null;
-  hasOnlyOneProvider: () => boolean;
+}
+
+const defaultApiKeyStatus = (provider: ModelProvider): ApiKeyStatus => ({
+  provider,
+  hasKey: false,
+  isValid: false,
+  hasEnvKey: false,
+});
+
+// Initialize environment variables
+function initializeEnvVars(): Record<string, string | undefined> {
+  const envVars: Record<string, string | undefined> = {};
+  
+  // Get all provider environment variable names
+  const allProviders = ['openai', 'anthropic', 'google', 'openrouter'] as ModelProvider[];
+  
+  allProviders.forEach(provider => {
+    const providerInfo = getProviderInfo(provider);
+    if (providerInfo?.envVar) {
+      const envValue = getEnvVar(providerInfo.envVar);
+      envVars[providerInfo.envVar] = envValue;
+    }
+  });
+  
+  return envVars;
 }
 
 export const useApiKeyStore = create<ApiKeyStore>()(
   persist(
     (set, get) => ({
       apiKeys: {} as Record<ModelProvider, string>,
-      apiKeyStatuses: {} as Record<ModelProvider, ApiKeyStatus>,
-      cliStatus: {
-        claudeCodeAvailable: false,
-        hasUsageLimit: false,
-      },
+      envVars: initializeEnvVars(),
+      apiKeyStatuses: {
+        openai: defaultApiKeyStatus('openai'),
+        anthropic: defaultApiKeyStatus('anthropic'),
+        google: defaultApiKeyStatus('google'),
+        openrouter: defaultApiKeyStatus('openrouter'),
+        ollama: { provider: 'ollama', hasKey: true, isValid: true, hasEnvKey: false },
+        lmstudio: { provider: 'lmstudio', hasKey: true, isValid: true, hasEnvKey: false },
+        auto: defaultApiKeyStatus('auto'),
+      } as Record<ModelProvider, ApiKeyStatus>,
 
       setApiKey: (provider, key) => {
         set((state) => ({
@@ -67,16 +104,13 @@ export const useApiKeyStore = create<ApiKeyStore>()(
           apiKeyStatuses: {
             ...state.apiKeyStatuses,
             [provider]: {
-              provider,
-              hasKey: true,
-              isValid: false, // Will be validated separately
+              ...state.apiKeyStatuses[provider],
+              hasKey: !!key,
+              isValid: false, // Will be validated later
               lastChecked: new Date(),
             },
           },
         }));
-        
-        // Automatically validate the new key
-        get().validateApiKey(provider);
       },
 
       removeApiKey: (provider) => {
@@ -84,169 +118,73 @@ export const useApiKeyStore = create<ApiKeyStore>()(
           const newApiKeys = { ...state.apiKeys };
           delete newApiKeys[provider];
           
-          const newStatuses = { ...state.apiKeyStatuses };
-          delete newStatuses[provider];
-          
           return {
             apiKeys: newApiKeys,
-            apiKeyStatuses: newStatuses,
+            apiKeyStatuses: {
+              ...state.apiKeyStatuses,
+              [provider]: defaultApiKeyStatus(provider),
+            },
           };
         });
       },
 
       getApiKey: (provider) => {
-        const { apiKeys } = get();
-        return apiKeys[provider] || null;
+        return get().apiKeys[provider] || null;
+      },
+
+      getEffectiveApiKey: (provider) => {
+        const state = get();
+        const userKey = state.apiKeys[provider];
+        if (userKey) return userKey;
+        
+        // Fallback to environment variable
+        const providerInfo = getProviderInfo(provider);
+        if (providerInfo?.envVar) {
+          return state.envVars[providerInfo.envVar] || null;
+        }
+        
+        return null;
+      },
+
+      refreshEnvVars: () => {
+        const envVars = initializeEnvVars();
+        set((state) => {
+          // Update environment variable status for each provider
+          const updatedStatuses = { ...state.apiKeyStatuses };
+          
+          Object.keys(updatedStatuses).forEach(providerKey => {
+            const provider = providerKey as ModelProvider;
+            const providerInfo = getProviderInfo(provider);
+            
+            if (providerInfo?.envVar) {
+              const hasEnvKey = !!envVars[providerInfo.envVar];
+              updatedStatuses[provider] = {
+                ...updatedStatuses[provider],
+                hasEnvKey,
+                envKeyValue: envVars[providerInfo.envVar],
+              };
+            }
+          });
+          
+          return {
+            envVars,
+            apiKeyStatuses: updatedStatuses,
+          };
+        });
       },
 
       validateApiKey: async (provider) => {
-        const { apiKeys } = get();
-        const apiKey = apiKeys[provider];
-        
-        if (!apiKey) {
-          set((state) => ({
-            apiKeyStatuses: {
-              ...state.apiKeyStatuses,
-              [provider]: {
-                provider,
-                hasKey: false,
-                isValid: false,
-                lastChecked: new Date(),
-                errorMessage: 'No API key provided',
-              },
-            },
-          }));
-          return false;
-        }
+        const apiKey = get().getApiKey(provider);
+        if (!apiKey) return false;
 
-        try {
-          let isValid = false;
-          let errorMessage: string | undefined;
-
-          // Validate based on provider
-          if (provider === 'anthropic') {
-            // Simple validation for Anthropic API key format
-            if (apiKey.startsWith('sk-ant-')) {
-              // In a real app, you'd make a test API call here
-              isValid = true;
-            } else {
-              errorMessage = 'Invalid Anthropic API key format';
-            }
-          } else if (provider === 'google') {
-            // Simple validation for Google API key format  
-            if (apiKey.length > 20) {
-              // In a real app, you'd make a test API call here
-              isValid = true;
-            } else {
-              errorMessage = 'Invalid Google API key format';
-            }
-          }
-
-          set((state) => ({
-            apiKeyStatuses: {
-              ...state.apiKeyStatuses,
-              [provider]: {
-                provider,
-                hasKey: true,
-                isValid,
-                lastChecked: new Date(),
-                errorMessage,
-              },
-            },
-          }));
-
-          return isValid;
-        } catch (error) {
-          set((state) => ({
-            apiKeyStatuses: {
-              ...state.apiKeyStatuses,
-              [provider]: {
-                provider,
-                hasKey: true,
-                isValid: false,
-                lastChecked: new Date(),
-                errorMessage: error instanceof Error ? error.message : 'Validation failed',
-              },
-            },
-          }));
-          return false;
-        }
-      },
-
-      checkClaudeCodeCli: async () => {
-        try {
-          let cliAvailable = false;
-          let version = undefined;
-          let hasUsageLimit = false;
-          let error = undefined;
-          
-          // Check if we're in Electron environment
-          if (typeof window !== 'undefined' && (window as any).electronAPI) {
-            // Try the new enhanced status check first
-            if ((window as any).electronAPI.claudeCode.checkStatus) {
-              const status = await (window as any).electronAPI.claudeCode.checkStatus();
-              cliAvailable = status.available;
-              hasUsageLimit = status.hasUsageLimit;
-              error = status.error;
-              
-              // If available, try to get version
-              if (cliAvailable) {
-                try {
-                  version = hasUsageLimit ? 'limited' : 'ready';
-                } catch (versionError) {
-                  console.warn('Could not get Claude Code version:', versionError);
-                  version = 'detected';
-                }
-              }
-            } else {
-              // Fallback to old method
-              console.log('Using fallback Claude Code detection');
-              cliAvailable = await (window as any).electronAPI.claudeCode.checkAvailability();
-              hasUsageLimit = false; // Can't detect with old method
-              if (cliAvailable) {
-                version = 'detected';
-              }
-            }
-          }
-          
-          set(() => ({
-            cliStatus: {
-              claudeCodeAvailable: cliAvailable,
-              version,
-              lastChecked: new Date(),
-              hasUsageLimit,
-              error,
-            },
-          }));
-          
-          console.log('Claude Code CLI Status:', {
-            cliAvailable,
-            version,
-            hasUsageLimit,
-            error
-          });
-          
-          return cliAvailable;
-        } catch (error) {
-          console.error('Error checking Claude Code CLI:', error);
-          set(() => ({
-            cliStatus: {
-              claudeCodeAvailable: false,
-              lastChecked: new Date(),
-              error: 'Failed to check Claude Code CLI',
-            },
-          }));
-          return false;
-        }
+        // For now, just assume the key is valid if it exists
+        // In a real implementation, you'd make API calls to validate
+        get().updateProviderStatus(provider, { isValid: true });
+        return true;
       },
 
       getProviderStatus: (provider) => {
-        const { apiKeyStatuses } = get();
-        return apiKeyStatuses[provider] || {
-          provider,
-          hasKey: false,
-          isValid: false,
-        };
+        return get().apiKeyStatuses[provider] || defaultApiKeyStatus(provider);
       },
 
       updateProviderStatus: (provider, status) => {
@@ -262,157 +200,109 @@ export const useApiKeyStore = create<ApiKeyStore>()(
       },
 
       getAvailableProviders: () => {
-        const { apiKeyStatuses, cliStatus } = get();
-        const availableProviders: ModelProvider[] = [];
-
-        // Check each provider for valid API keys
-        Object.keys(apiKeyStatuses).forEach((provider) => {
-          const status = apiKeyStatuses[provider as ModelProvider];
-          if (status && status.hasKey && status.isValid) {
-            availableProviders.push(provider as ModelProvider);
-          }
-        });
-
-        // Check if Claude Code CLI is available
-        if (cliStatus.claudeCodeAvailable) {
-          availableProviders.push('claude-code');
-        }
-
-        // If Aider IPC exposed, consider it available (runtime CLI presence validated later)
-        if (typeof window !== 'undefined' && (window as any).electronAPI?.aider) {
-          availableProviders.push('aider');
-        }
-
-        return availableProviders;
+        const state = get();
+        return Object.keys(state.apiKeyStatuses)
+          .filter((provider) => {
+            const status = state.apiKeyStatuses[provider as ModelProvider];
+            const providerType = provider as ModelProvider;
+            
+            // Local providers are always available
+            if (providerType === 'ollama' || providerType === 'lmstudio') {
+              return true;
+            }
+            
+            // Check if user has set a key OR environment variable is available
+            const hasUserKey = status.hasKey && status.isValid;
+            const hasValidEnvKey = status.hasEnvKey;
+            
+            return hasUserKey || hasValidEnvKey;
+          }) as ModelProvider[];
       },
 
       getRecommendedModel: () => {
         const availableProviders = get().getAvailableProviders();
         
-        if (availableProviders.length === 0) {
-          return null;
-        }
-
-        // If only one provider available, return its best model
-        if (availableProviders.length === 1) {
-          const provider = availableProviders[0];
-          const models = getModelsByProvider(provider);
-          return models.length > 0 ? models[0] : null;
-        }
-
-        // Priority order for multiple providers
-        const priorityOrder: ModelProvider[] = [
-          'aider',
-          'claude-code',
-          'anthropic', 
-          'openai',
-          'google',
-          'openrouter'
-        ];
-
-        for (const provider of priorityOrder) {
+        // Priority order for recommendations
+        const providerPriority: ModelProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'auto'];
+        
+        for (const provider of providerPriority) {
           if (availableProviders.includes(provider)) {
             const models = getModelsByProvider(provider);
             if (models.length > 0) {
-              return models[0]; // Return the first (best) model for this provider
+              return models[0];
             }
           }
         }
-
+        
         return null;
-      },
-
-      hasOnlyOneProvider: () => {
-        return get().getAvailableProviders().length === 1;
       },
     }),
     {
-      name: 'prestige-api-keys',
-      // Only persist API keys and statuses, not sensitive data
+      name: 'api-keys-store-v3',
       partialize: (state) => ({
-        apiKeyStatuses: state.apiKeyStatuses,
-        cliStatus: state.cliStatus,
-        // Note: In a production app, API keys should be stored more securely
         apiKeys: state.apiKeys,
+        apiKeyStatuses: state.apiKeyStatuses,
       }),
     }
   )
 );
 
-// Export Provider type for compatibility
-export type Provider = 'anthropic' | 'google';
-
-// Simple wrapper functions for the ApiKeyDialog
-export function getApiKey(provider: Provider): string | null {
-  return useApiKeyStore.getState().getApiKey(provider as ModelProvider);
-}
-
-export function setApiKey(provider: Provider, key: string): void {
-  useApiKeyStore.getState().setApiKey(provider as ModelProvider, key);
-}
-
-export async function validateApiKey(provider: Provider, key?: string): Promise<boolean> {
-  if (key) {
-    // Set the key first if provided
-    setApiKey(provider, key);
-  }
-  return useApiKeyStore.getState().validateApiKey(provider as ModelProvider);
-}
-
-export async function checkClaudeCodeCLI(): Promise<boolean> {
-  return useApiKeyStore.getState().checkClaudeCodeCli();
-}
-
-// Utility functions
-// Auto model selection functions
-export function getAvailableProviders(): ModelProvider[] {
-  return useApiKeyStore.getState().getAvailableProviders();
-}
-
-export function getRecommendedModel(): LargeLanguageModel | null {
-  return useApiKeyStore.getState().getRecommendedModel();
-}
-
-export function hasOnlyOneProvider(): boolean {
-  return useApiKeyStore.getState().hasOnlyOneProvider();
-}
-
-export function shouldAutoSelectModel(): boolean {
-  return hasOnlyOneProvider() && getRecommendedModel() !== null;
-}
-
-export function getAutoSelectedModel(): LargeLanguageModel | null {
-  if (shouldAutoSelectModel()) {
-    return getRecommendedModel();
-  }
-  return null;
-}
-
-export function getModelAvailability(modelName: string, provider: ModelProvider) {
-  const apiKeyStore = useApiKeyStore.getState();
-  const status = apiKeyStore.getProviderStatus(provider);
+export function getModelAvailability(modelName: string, provider: ModelProvider): ModelAvailability {
+  const store = useApiKeyStore.getState();
+  const status = store.getProviderStatus(provider);
   
-  // Special case for Claude Code
-  if (modelName === 'Claude Code') {
-    const cliStatus = apiKeyStore.cliStatus;
-    return {
-      available: status.hasKey && status.isValid || cliStatus.claudeCodeAvailable,
-      reason: status.hasKey && status.isValid 
-        ? 'API key configured' 
-        : cliStatus.claudeCodeAvailable 
-          ? 'CLI available' 
-          : 'Requires API key or CLI installation',
-      status: status.hasKey && status.isValid || cliStatus.claudeCodeAvailable ? 'ready' : 'needs-setup',
+  // Local providers are always available
+  if (provider === 'ollama' || provider === 'lmstudio') {
+    return { status: 'ready' };
+  }
+  
+  // Auto provider logic
+  if (provider === 'auto') {
+    const availableProviders = store.getAvailableProviders();
+    if (availableProviders.length > 0) {
+      return { status: 'ready' };
+    }
+    return { 
+      status: 'api_key_required', 
+      message: 'At least one API key is required for auto mode' 
     };
   }
   
-  return {
-    available: status.hasKey && status.isValid,
-    reason: !status.hasKey 
-      ? 'API key required' 
-      : !status.isValid 
-        ? status.errorMessage || 'Invalid API key'
-        : 'Ready to use',
-    status: status.hasKey && status.isValid ? 'ready' : 'needs-setup',
+  // Check if we have either user key or environment key
+  const hasUserKey = status.hasKey && status.isValid;
+  const hasEnvKey = status.hasEnvKey;
+  
+  if (!hasUserKey && !hasEnvKey) {
+    return { 
+      status: 'api_key_required', 
+      message: `${provider} API key required` 
+    };
+  }
+  
+  if (hasUserKey || hasEnvKey) {
+    return { status: 'ready' };
+  }
+  
+  return { 
+    status: 'unavailable', 
+    message: 'Invalid API key' 
   };
+}
+
+// Standalone functions for backward compatibility
+export function getApiKey(provider: ModelProvider): string | null {
+  return useApiKeyStore.getState().getApiKey(provider);
+}
+
+export function setApiKey(provider: ModelProvider, key: string): void {
+  useApiKeyStore.getState().setApiKey(provider, key);
+}
+
+export async function validateApiKey(provider: ModelProvider): Promise<boolean> {
+  return useApiKeyStore.getState().validateApiKey(provider);
+}
+
+export function checkClaudeCodeCLI(): boolean {
+  // Since we removed Claude Code CLI, always return false
+  return false;
 }

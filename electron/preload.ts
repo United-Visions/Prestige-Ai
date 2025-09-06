@@ -66,8 +66,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     initializePrestigeFolder: (): Promise<string> => 
       ipcRenderer.invoke('app:initialize-prestige-folder'),
     getPaths: () => ipcRenderer.invoke('app:get-paths'),
-  getCwd: () => ipcRenderer.invoke('app:get-cwd'),
+    getCwd: () => ipcRenderer.invoke('app:get-cwd'),
   },
+
+  // Environment variables
+  getEnvVar: (name: string): string | undefined => 
+    ipcRenderer.sendSync('env:get-var', name),
+  getAllEnvVars: (): Promise<Record<string, string | undefined>> => 
+    ipcRenderer.invoke('env:get-all-vars'),
 
   // Path utilities
   path: {
@@ -208,6 +214,8 @@ declare global {
           isPackaged: boolean
         }>
       }
+      getEnvVar: (name: string) => string | undefined
+      getAllEnvVars: () => Promise<Record<string, string | undefined>>
       path: {
         join: (...paths: string[]) => Promise<string>
         basename: (filePath: string, ext?: string) => Promise<string>

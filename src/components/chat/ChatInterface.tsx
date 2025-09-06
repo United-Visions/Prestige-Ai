@@ -12,16 +12,14 @@ import { Badge } from '@/components/ui/badge';
 import useAppStore from '@/stores/appStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { DEFAULT_TEMPLATE_ID, getTemplateById } from '@/templates';
-import { Sparkles, FileText, Code, Zap, Play, Settings, ChevronDown, Loader, StopCircle, Terminal as TerminalIcon } from 'lucide-react';
+import { Sparkles, FileText, Code, Zap, Play, Settings, ChevronDown, Loader, StopCircle } from 'lucide-react';
 import { AppSidebar } from '../apps/AppSidebar';
 import { processContinuousAgentResponse } from '@/services/continuousAgentProcessor';
 import { constructSystemPrompt, readAiRules } from '@/prompts/system_prompt';
-import { aiModelService, StreamChunk } from '@/services/aiModelService';
-import { ClaudeCodeService } from '@/services/claudeCodeService';
+import { aiModelServiceV2 as aiModelService, StreamChunk } from '@/services/aiModelService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { EnhancedMarkdownRenderer } from './EnhancedMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
-import { RealTerminal } from '@/components/terminal/RealTerminal';
 import type { Message } from '@/types';
 
 export function ChatInterface() {
@@ -49,27 +47,13 @@ export function ChatInterface() {
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-  const [showTerminalMode, setShowTerminalMode] = useState(false);
 
-  // Determine if we should show terminal mode (Claude Code or Aider CLI)
-  const isClaudeCodeSelected = selectedModel.name === 'claude-code' || selectedModel.provider === 'claude-code';
-  const isAiderSelected = selectedModel.name === 'aider-cli' || selectedModel.provider === 'aider';
-  const hasTerminalIntegration = isClaudeCodeSelected || isAiderSelected;
   
   // Debug logging
   console.log('🔍 Model Selection Debug:', {
-    selectedModel,
-    isClaudeCodeSelected,
-    showTerminalMode
+    selectedModel
   });
   
-  useEffect(() => {
-    if (hasTerminalIntegration) {
-      setShowTerminalMode(true);
-    } else {
-      setShowTerminalMode(false);
-    }
-  }, [hasTerminalIntegration]);
 
   useEffect(() => {
     loadApps();
@@ -200,10 +184,9 @@ export function ChatInterface() {
       const systemPrompt = await getSystemPrompt();
       let agentResponse: string;
 
-      if (selectedModel.provider === 'claude-code' || (selectedModel.provider === 'auto' && selectedModel.name === 'Claude Code')) {
-        // Use the existing ClaudeCodeService for the CLI agent
-        const claudeService = ClaudeCodeService.getInstance();
-        agentResponse = await claudeService.continueConversation(conversationId, content);
+      if (false) {
+        // This code path is no longer used
+        agentResponse = 'Claude Code service removed';
       } else if (supportsThinking(selectedModel.provider) || selectedModel.provider === 'anthropic' || selectedModel.provider === 'google') {
         // Use streaming for models that support it
         setIsStreamingResponse(true);
@@ -420,18 +403,6 @@ export function ChatInterface() {
                 onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
               />
               
-              {/* Terminal Toggle for Claude Code / Aider */}
-              {hasTerminalIntegration && (
-                <Button
-                  size="sm"
-                  variant={showTerminalMode ? "default" : "outline"}
-                  onClick={() => setShowTerminalMode(!showTerminalMode)}
-                  className="gap-2"
-                >
-                  <TerminalIcon className="w-4 h-4" />
-                  {showTerminalMode ? 'Chat Mode' : (isAiderSelected ? 'Aider Terminal' : 'Terminal Mode')}
-                </Button>
-              )}
               
               {currentApp && (
                 <Button
@@ -447,16 +418,8 @@ export function ChatInterface() {
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col" style={{ padding: showTerminalMode ? '0' : '1rem' }}>
-          {showTerminalMode ? (
-            /* Claude Code Terminal Mode */
-            <div className="flex-1 flex">
-              <RealTerminal 
-                key="real-terminal" // Force re-render when switching modes
-                onClose={() => setShowTerminalMode(false)}
-              />
-            </div>
-          ) : !currentApp ? (
+        <div className="flex-1 flex flex-col" style={{ padding: '1rem' }}>
+          {!currentApp ? (
             <div className="flex-1 flex items-center justify-center overflow-y-auto space-y-4">
               <div className="text-center max-w-2xl w-full">
                 <Sparkles className="w-16 h-16 text-primary mx-auto mb-4" />

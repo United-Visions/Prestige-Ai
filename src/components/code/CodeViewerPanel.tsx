@@ -309,25 +309,17 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     
     try {
       // Use the currently selected model instead of hardcoding Claude Code
-      if (selectedModel.provider === 'claude-code' || (selectedModel.provider === 'auto' && selectedModel.name === 'Claude Code')) {
-        // Only use ClaudeCodeService if Claude Code is specifically selected
-        const { ClaudeCodeService } = await import('@/services/claudeCodeService');
-        const claudeService = ClaudeCodeService.getInstance();
+      if (false) {
+        // This code path is no longer used
+        throw new Error('Claude Code service removed');
         
-        // Get the current conversation for this app
-        const conversations = await appService.getAppConversations(currentApp.id);
-        const activeConversation = conversations[0]; // Get the most recent conversation
-        
-        if (activeConversation) {
-          const fixPrompt = errorService.generateErrorFixPrompt(errorReport);
-          console.log('Auto-fix prompt (Claude Code):', fixPrompt);
+        // This code path is no longer used
+        console.log('Claude Code service has been removed');
+        if (currentApp && errorReport) {
+          console.log('Error report:', errorReport);
           
-          // Send the fix prompt using Claude Code service
-          const response = await claudeService.continueConversation(activeConversation.id, fixPrompt, 'build');
-          
-          // Process the response to apply file changes
-          const { processAgentResponse } = await import('@/services/agentResponseProcessor');
-          await processAgentResponse(response);
+          // Process response would go here
+          console.log('Would process response here');
           
           // Clear error report after successful fix attempt
           setErrorReport(null);
@@ -337,7 +329,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
         }
       } else {
         // Use the standard AI model service for other models
-        const { aiModelService } = await import('@/services/aiModelService');
+        const { aiModelServiceV2: aiModelService } = await import('@/services/aiModelService');
         const { constructSystemPrompt, readAiRules } = await import('@/prompts/system_prompt');
         
         // Get the current conversation for this app
@@ -413,7 +405,8 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
     
     // Store error prompt globally so terminal can access it
-    window.prestigeErrorPrompt = errorPrompt;
+    // Store error prompt for terminal use (if needed)
+    (window as any).prestigeErrorPrompt = errorPrompt;
     
     // Notify user
     showToast(`Prepared error summary for terminal. Switch to terminal mode and type "fix-errors".`, 'success');

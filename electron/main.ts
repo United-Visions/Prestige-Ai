@@ -1,33 +1,19 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { spawn, ChildProcess } from 'child_process'
-import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
+import { spawn } from 'child_process'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { join, resolve } from 'path'
 import { tmpdir } from 'os'
-import { eq, desc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import fs from 'fs';
-import { initializeDatabase, closeDatabase } from './db';
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { initializeDatabase, closeDatabase, getDatabase } from './db';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
-
-// Use node-pty for professional-grade terminal functionality
-// This provides full PTY support with advanced terminal features
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
 }
-
-// Centralized path provider
-ipcMain.handle('app:get-paths', () => {
-  return {
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
-    isPackaged: app.isPackaged,
-  };
-});
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -61,65 +47,16 @@ const createWindow = (): void => {
   })
 
   mainWindow.on('closed', () => {
-    console.log('[MAIN] ===== MAIN WINDOW CLOSED EVENT =====');
-    console.log(`[MAIN] NODE_ENV: ${process.env.NODE_ENV}`);
-    // Only cleanup if we're actually closing the app, not during development restarts
+    console.log('[MAIN] Window closed');
     if (process.env.NODE_ENV !== 'development') {
-      console.log('[MAIN] Production mode: triggering cleanup from window close');
-      // Cleanup all running apps when window is closed
       AdvancedAppManager.getInstance().cleanup();
-    } else {
-      console.log('[MAIN] Development mode: skipping cleanup from window close');
     }
-    console.log('[MAIN] Setting mainWindow to null');
     mainWindow = null
-    console.log('[MAIN] ===== MAIN WINDOW CLOSED EVENT END =====');
   })
 }
 
 app.whenReady().then(() => {
   createWindow()
-
-  // Auto-updater configuration
-  if (!app.isPackaged) {
-    console.log('Development mode: Auto-updater disabled')
-  } else {
-    // Auto-updater event handlers
-    autoUpdater.on('checking-for-update', () => {
-      console.log('Checking for update...')
-    })
-
-    autoUpdater.on('update-available', (info) => {
-      console.log('Update available:', info)
-    })
-
-    autoUpdater.on('update-not-available', (info) => {
-      console.log('Update not available:', info)
-    })
-
-    autoUpdater.on('error', (err) => {
-      console.log('Error in auto-updater:', err)
-    })
-
-    autoUpdater.on('download-progress', (progressObj) => {
-      console.log(`Download speed: ${progressObj.bytesPerSecond}`)
-      console.log(`Downloaded ${progressObj.percent}%`)
-    })
-
-    autoUpdater.on('update-downloaded', (info) => {
-      console.log('Update downloaded:', info)
-      // You could show a notification to the user here
-      autoUpdater.quitAndInstall()
-    })
-
-    // Check for updates on app start
-    autoUpdater.checkForUpdatesAndNotify()
-    
-    // Check for updates every hour
-    setInterval(() => {
-      autoUpdater.checkForUpdatesAndNotify()
-    }, 60 * 60 * 1000)
-  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -127,342 +64,51 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
-  console.log('[MAIN] ===== BEFORE QUIT EVENT =====');
-  console.log(`[MAIN] NODE_ENV: ${process.env.NODE_ENV}`);
-  console.log('[MAIN] Triggering cleanup from before-quit event');
-  // Cleanup advanced app manager
+  console.log('[MAIN] Before quit - cleaning up');
   AdvancedAppManager.getInstance().cleanup();
-  console.log('[MAIN] ===== BEFORE QUIT EVENT END =====');
 });
 
 app.on('window-all-closed', () => {
-  console.log('[MAIN] ===== WINDOW ALL CLOSED EVENT =====');
-  console.log(`[MAIN] Platform: ${process.platform}`);
   if (process.platform !== 'darwin') {
-    console.log('[MAIN] Non-Darwin platform: closing database and quitting app');
     closeDatabase();
     app.quit();
-  } else {
-    console.log('[MAIN] Darwin platform: keeping app alive');
   }
-  console.log('[MAIN] ===== WINDOW ALL CLOSED EVENT END =====');
 });
 
-let db: BetterSQLite3Database<typeof schema>;
-try {
-  db = initializeDatabase();
-  console.log('Database initialized successfully.');
-} catch (error) {
-  console.error('Failed to initialize database:', error);
-  // In development, don't quit the app immediately - retry initialization
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Development mode: Will retry database initialization...');
-    // Try to initialize the database again after a delay
-    setTimeout(() => {
-      try {
-        db = initializeDatabase();
-        console.log('Database initialized successfully on retry.');
-      } catch (retryError) {
-        console.error('Failed to initialize database on retry:', retryError);
+// Lazily initialize the database only after Electron is ready.
+// This avoids calling app.getPath(...) before the app 'ready' event,
+// which was causing initialization to fail and leaving `db` undefined.
+let dbInitialized = false;
+function ensureDb() {
+  if (!dbInitialized) {
+    try {
+      initializeDatabase();
+      dbInitialized = true;
+      console.log('Database initialized successfully.');
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      if (process.env.NODE_ENV !== 'development') {
+        app.quit();
       }
-    }, 2000);
-  } else {
-    // Only quit in production if database fails
-    app.quit();
+      throw error;
+    }
   }
+  return getDatabase();
 }
 
-// IPC Handlers for Claude Code CLI integration
-ipcMain.handle('claude-code:check-availability', async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const childProcess = spawn('claude', ['--version'], {
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        PATH: enhancePath(process.env.PATH || '')
-      }
-    });
-
-    let output = '';
-    let stderr = '';
-    
-    childProcess.stdout?.on('data', (data) => {
-      output += data.toString();
-    });
-    
-    childProcess.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    childProcess.on('close', (code: number | null) => {
-      // Enhanced detection - check for Claude Code in output or successful exit with version info
-      const outputText = (output + stderr).toLowerCase();
-      const hasClaudeInOutput = outputText.includes('claude');
-      const hasVersionPattern = /\d+\.\d+\.\d+/.test(output + stderr);
-      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
-      
-      console.log('🔍 Claude Code availability check:', { 
-        isAvailable, 
-        code, 
-        output: output.trim(), 
-        hasClaudeInOutput,
-        hasVersionPattern
-      });
-      resolve(isAvailable);
-    });
-
-    childProcess.on('error', () => {
-      console.log('🔍 Claude Code availability check failed due to spawn error');
-      resolve(false);
-    });
-    
-    // Add timeout
-    setTimeout(() => {
-      childProcess.kill();
-      console.log('🔍 Claude Code availability check timed out');
-      resolve(false);
-    }, 3000);
-  });
+app.whenReady().then(() => {
+  // Proactively initialize so first renderer requests are fast.
+  try { ensureDb(); } catch { /* already logged */ }
 });
 
-// New handler to check Claude Code status including usage limits
-ipcMain.handle('claude-code:check-status', async (): Promise<{ available: boolean; hasUsageLimit: boolean; error?: string }> => {
-  return new Promise((resolve) => {
-    // First check if CLI is installed
-    const versionProcess = spawn('claude', ['--version'], {
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        PATH: enhancePath(process.env.PATH || '')
-      }
-    });
-
-    let versionOutput = '';
-    let versionStderr = '';
-    
-    versionProcess.stdout?.on('data', (data) => {
-      versionOutput += data.toString();
-    });
-    
-    versionProcess.stderr?.on('data', (data) => {
-      versionStderr += data.toString();
-    });
-
-    versionProcess.on('close', (code: number | null) => {
-      // Enhanced detection for version check
-      const outputText = (versionOutput + versionStderr).toLowerCase();
-      const hasClaudeInOutput = outputText.includes('claude');
-      const hasVersionPattern = /\d+\.\d+\.\d+/.test(versionOutput + versionStderr);
-      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
-      
-      if (!isAvailable) {
-        resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not installed or not accessible' });
-        return;
-      }
-
-      // CLI is installed, now check for usage limits by trying a simple command
-      const testProcess = spawn('claude', ['--help'], {
-        shell: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          ...process.env,
-          PATH: enhancePath(process.env.PATH || '')
-        }
-      });
-
-      let stderr = '';
-      testProcess.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      testProcess.on('close', (testCode: number | null) => {
-        const hasUsageLimit = stderr.includes('Usage limit reached') || stderr.includes('limit reached');
-        resolve({ 
-          available: true, 
-          hasUsageLimit, 
-          error: hasUsageLimit ? 'Usage limit reached' : undefined 
-        });
-      });
-
-      testProcess.on('error', () => {
-        resolve({ available: true, hasUsageLimit: false, error: 'Could not check usage status' });
-      });
-      
-      // Add timeout for test process
-      setTimeout(() => {
-        testProcess.kill();
-        resolve({ available: true, hasUsageLimit: false, error: 'Usage check timed out' });
-      }, 3000);
-    });
-
-    versionProcess.on('error', () => {
-      resolve({ available: false, hasUsageLimit: false, error: 'Claude CLI not found' });
-    });
-    
-    // Add timeout for version process
-    setTimeout(() => {
-      versionProcess.kill();
-      resolve({ available: false, hasUsageLimit: false, error: 'Version check timed out' });
-    }, 3000);
-  });
-});
-
-ipcMain.handle('claude-code:execute', async (event, prompt: string, options: { cwd?: string } = {}): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    // Default to prestige-ai folder on desktop for project creation
-    const desktopPath = app.getPath('desktop');
-    const prestigeAIPath = join(desktopPath, 'prestige-ai');
-    const { cwd = prestigeAIPath } = options;
-    
-    console.log('Executing Claude Code with prompt length:', prompt.length);
-    console.log('Working directory:', cwd);
-    
-    // Create temporary file for the prompt
-    const tempFileName = `prestige-ai-prompt-${Date.now()}-${Math.random().toString(36).substring(2, 11)}.txt`;
-    const tempFilePath = join(tmpdir(), tempFileName);
-    
-    try {
-      writeFileSync(tempFilePath, prompt, 'utf8');
-      console.log(`Created temporary prompt file: ${tempFilePath}`);
-      
-      const cleanup = () => {
-        try {
-          if (existsSync(tempFilePath)) {
-            unlinkSync(tempFilePath);
-            console.log(`Cleaned up temporary file: ${tempFilePath}`);
-          }
-        } catch (cleanupError) {
-          console.warn(`Failed to clean up temporary file: ${cleanupError}`);
-        }
-      };
-
-      // Execute Claude Code CLI
-      const childProcess = spawn('claude', [
-        '--continue',
-        '--print',
-        '--dangerously-skip-permissions',
-        tempFilePath
-      ], {
-        cwd,
-        shell: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env }
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      childProcess.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      childProcess.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      childProcess.on('close', (code: number | null) => {
-        cleanup();
-        
-        if (code === 0) {
-          console.log('Claude Code executed successfully');
-          resolve(stdout.trim());
-        } else {
-          console.error(`Claude Code failed with exit code ${code}`);
-          console.error('STDERR:', stderr);
-          console.error('STDOUT:', stdout);
-          
-          // Check for common error conditions
-          let errorMessage = stderr || 'Unknown error';
-          
-          if (stdout.includes('limit reached') || stdout.includes('resets')) {
-            errorMessage = `Usage limit reached. ${stdout.trim()}`;
-          } else if (code === 1 && !stderr.trim() && !stdout.trim()) {
-            errorMessage = 'Authentication failed or usage limit reached. Please check your Claude CLI status.';
-          }
-          
-          reject(new Error(`Claude Code failed (exit code ${code}): ${errorMessage}`));
-        }
-      });
-
-      childProcess.on('error', (err: Error) => {
-        cleanup();
-        console.error('Failed to spawn Claude Code:', err);
-        reject(new Error(`Failed to execute Claude Code: ${err.message}`));
-      });
-
-      // Handle process termination signals
-      process.once('SIGINT', cleanup);
-      process.once('SIGTERM', cleanup);
-      
-    } catch (fileError) {
-      console.error('Failed to create temporary prompt file:', fileError);
-      reject(new Error(`Failed to create temporary file: ${fileError}`));
-    }
-  });
-});
-
-// IPC Handlers for Aider AI CLI integration
-ipcMain.handle('aider:check-availability', async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const childProcess = spawn('aider', ['--version'], {
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    childProcess.on('close', (code: number | null) => {
-      resolve(code === 0);
-    });
-    childProcess.on('error', () => resolve(false));
-  });
-});
-
-ipcMain.handle('aider:execute', async (event, prompt: string, options: { cwd?: string; model?: string; apiKeySpec?: string } = {}): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const desktopPath = app.getPath('desktop');
-    const prestigeAIPath = join(desktopPath, 'prestige-ai');
-    const { cwd = prestigeAIPath, model, apiKeySpec } = options;
-
-    const tempFileName = `prestige-ai-aider-prompt-${Date.now()}-${Math.random().toString(36).substring(2, 11)}.txt`;
-    const tempFilePath = join(tmpdir(), tempFileName);
-    try {
-      writeFileSync(tempFilePath, prompt, 'utf8');
-      const cleanup = () => {
-        try { if (existsSync(tempFilePath)) unlinkSync(tempFilePath); } catch {}
-      };
-      const args: string[] = [];
-      if (model) args.push('--model', model);
-      if (apiKeySpec) args.push('--api-key', apiKeySpec);
-      // Use --yes to auto-apply when editing, --no-auto-commits to avoid git commits if user repo not initialized
-      args.push('--yes', '--no-auto-commits', tempFilePath);
-      const childProcess = spawn('aider', args, { cwd, shell: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env } });
-      let stdout = '';
-      let stderr = '';
-      childProcess.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-      childProcess.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-      childProcess.on('close', (code: number | null) => {
-        cleanup();
-        if (code === 0) {
-          resolve(stdout.trim() || '');
-        } else {
-          reject(new Error(`Aider failed (exit code ${code}): ${(stderr || stdout || 'Unknown error').trim()}`));
-        }
-      });
-      childProcess.on('error', (err: Error) => { cleanup(); reject(new Error(`Failed to execute Aider: ${err.message}`)); });
-      process.once('SIGINT', cleanup);
-      process.once('SIGTERM', cleanup);
-    } catch (e:any) {
-      reject(new Error(`Failed to run Aider: ${e.message}`));
-    }
-  });
-});
-
-// IPC Handlers for Database
+// Database IPC handlers
 ipcMain.handle('db:get-apps', async () => {
+  const db = ensureDb();
   return db.query.apps.findMany();
 });
 
-ipcMain.handle('db:get-app', async (event, appId) => {
+ipcMain.handle('db:get-app', async (_, appId) => {
+  const db = ensureDb();
   return db.query.apps.findFirst({
     where: (apps, { eq }) => eq(apps.id, appId),
     with: {
@@ -471,56 +117,113 @@ ipcMain.handle('db:get-app', async (event, appId) => {
   });
 });
 
-ipcMain.handle('db:get-app-conversations', async (event, appId) => {
+ipcMain.handle('db:get-app-conversations', async (_, appId) => {
+  const db = ensureDb();
   return db.query.conversations.findMany({
     where: (conversations, { eq }) => eq(conversations.appId, appId),
     orderBy: (conversations, { desc }) => [desc(conversations.createdAt)],
   });
 });
 
-ipcMain.handle('db:create-app', async (event, app) => {
+ipcMain.handle('db:create-app', async (_, app) => {
+  const db = ensureDb();
   const [newApp] = await db.insert(schema.apps).values(app).returning();
   return newApp;
 });
 
-ipcMain.handle('db:get-conversation', async (event, conversationId) => {
-    return db.query.conversations.findFirst({
-        where: (conversations, { eq }) => eq(conversations.id, conversationId),
-        with: {
-            messages: {
-                orderBy: (messages, { desc }) => [desc(messages.createdAt)],
-            },
-        },
-    });
+ipcMain.handle('db:get-conversation', async (_, conversationId) => {
+  const db = ensureDb();
+  return db.query.conversations.findFirst({
+    where: (conversations, { eq }) => eq(conversations.id, conversationId),
+    with: {
+      messages: {
+        orderBy: (messages, { desc }) => [desc(messages.createdAt)],
+      },
+    },
+  });
 });
 
-ipcMain.handle('db:add-message', async (event, message) => {
-    const [newMessage] = await db.insert(schema.messages).values(message).returning();
-    return newMessage;
+ipcMain.handle('db:add-message', async (_, message) => {
+  const db = ensureDb();
+  const [newMessage] = await db.insert(schema.messages).values(message).returning();
+  return newMessage;
 });
 
-ipcMain.handle('db:delete-app', async (event, appId) => {
-    await db.delete(schema.apps).where(eq(schema.apps.id, appId));
+ipcMain.handle('db:delete-app', async (_, appId) => {
+  const db = ensureDb();
+  await db.delete(schema.apps).where(eq(schema.apps.id, appId));
 });
 
-ipcMain.handle('db:delete-conversation', async (event, conversationId) => {
-    await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
+ipcMain.handle('db:delete-conversation', async (_, conversationId) => {
+  const db = ensureDb();
+  await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
 });
 
-ipcMain.handle('db:rename-app', async (event, appId, newName) => {
-    await db.update(schema.apps).set({ name: newName, path: newName, updatedAt: new Date() }).where(eq(schema.apps.id, appId));
+ipcMain.handle('db:rename-app', async (_, appId, newName) => {
+  const db = ensureDb();
+  await db.update(schema.apps).set({ name: newName, path: newName, updatedAt: new Date() }).where(eq(schema.apps.id, appId));
 });
 
-ipcMain.handle('db:create-conversation', async (event, conversation) => {
-    const [newConversation] = await db.insert(schema.conversations).values(conversation).returning({ id: schema.conversations.id });
-    return newConversation.id;
+ipcMain.handle('db:create-conversation', async (_, conversation) => {
+  const db = ensureDb();
+  const [newConversation] = await db.insert(schema.conversations).values(conversation).returning({ id: schema.conversations.id });
+  return newConversation.id;
 });
 
-// Additional fs handlers
-ipcMain.handle('fs:ensure-file', async (event, filePath: string): Promise<void> => {
+// File system IPC handlers
+ipcMain.handle('fs:read-file', async (_, filePath: string): Promise<string> => {
   try {
-    const path = require('path');
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    return await fs.promises.readFile(filePath, 'utf8');
+  } catch (error) {
+    throw new Error(`Failed to read file ${filePath}: ${error}`);
+  }
+});
+
+ipcMain.handle('fs:write-file', async (_, filePath: string, content: string): Promise<void> => {
+  try {
+    await fs.promises.mkdir(require('path').dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, content, 'utf8');
+  } catch (error) {
+    throw new Error(`Failed to write file ${filePath}: ${error}`);
+  }
+});
+
+ipcMain.handle('fs:exists', async (_, filePath: string): Promise<boolean> => {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('fs:mkdir', async (_, dirPath: string): Promise<void> => {
+  try {
+    await fs.promises.mkdir(dirPath, { recursive: true });
+  } catch (error) {
+    throw new Error(`Failed to create directory ${dirPath}: ${error}`);
+  }
+});
+
+ipcMain.handle('fs:readdir', async (_, dirPath: string): Promise<string[]> => {
+  try {
+    return await fs.promises.readdir(dirPath);
+  } catch (error) {
+    throw new Error(`Failed to read directory ${dirPath}: ${error}`);
+  }
+});
+
+ipcMain.handle('fs:stat', async (_, filePath: string) => {
+  try {
+    return await fs.promises.stat(filePath);
+  } catch (error) {
+    throw new Error(`Failed to get file stats ${filePath}: ${error}`);
+  }
+});
+
+ipcMain.handle('fs:ensure-file', async (_, filePath: string): Promise<void> => {
+  try {
+    await fs.promises.mkdir(require('path').dirname(filePath), { recursive: true });
     const handle = await fs.promises.open(filePath, 'a');
     await handle.close();
   } catch (error) {
@@ -528,7 +231,7 @@ ipcMain.handle('fs:ensure-file', async (event, filePath: string): Promise<void> 
   }
 });
 
-ipcMain.handle('fs:rename', async (event, oldPath: string, newPath: string): Promise<void> => {
+ipcMain.handle('fs:rename', async (_, oldPath: string, newPath: string): Promise<void> => {
   try {
     await fs.promises.rename(oldPath, newPath);
   } catch (error) {
@@ -536,7 +239,7 @@ ipcMain.handle('fs:rename', async (event, oldPath: string, newPath: string): Pro
   }
 });
 
-ipcMain.handle('fs:remove', async (event, path: string): Promise<void> => {
+ipcMain.handle('fs:remove', async (_, path: string): Promise<void> => {
   try {
     await fs.promises.rm(path, { recursive: true, force: true });
   } catch (error) {
@@ -544,15 +247,7 @@ ipcMain.handle('fs:remove', async (event, path: string): Promise<void> => {
   }
 });
 
-ipcMain.handle('fs:delete-directory', async (event, dirPath: string): Promise<void> => {
-  try {
-    await fs.promises.rm(dirPath, { recursive: true, force: true });
-  } catch (error) {
-    throw new Error(`Failed to delete directory ${dirPath}: ${error}`);
-  }
-});
-
-ipcMain.handle('fs:copy', async (event, src: string, dest: string, options?: any): Promise<void> => {
+ipcMain.handle('fs:copy', async (_, src: string, dest: string, options?: any): Promise<void> => {
   try {
     await fs.promises.cp(src, dest, { recursive: true, ...options });
   } catch (error) {
@@ -560,58 +255,17 @@ ipcMain.handle('fs:copy', async (event, src: string, dest: string, options?: any
   }
 });
 
-ipcMain.handle('fs:path-exists', async (event, path: string): Promise<boolean> => {
-  try {
-    await fs.promises.access(path);
-    return true;
-  } catch {
-    return false;
-  }
-});
-
-ipcMain.handle('fs:read-json', async (event, path: string): Promise<any> => {
+ipcMain.handle('fs:read-json', async (_, path: string): Promise<any> => {
   const content = await fs.promises.readFile(path, 'utf8');
   return JSON.parse(content);
 });
 
-ipcMain.handle('fs:write-json', async (event, path: string, data: any, options?: { spaces?: number }): Promise<void> => {
+ipcMain.handle('fs:write-json', async (_, path: string, data: any, options?: { spaces?: number }): Promise<void> => {
   const content = JSON.stringify(data, null, options?.spaces || 2);
   await fs.promises.writeFile(path, content, 'utf8');
 });
 
-ipcMain.handle('fs:ensure-dir', async (event, path: string): Promise<void> => {
-  await fs.promises.mkdir(path, { recursive: true });
-});
-
-ipcMain.on('fs:exists-sync', (event, path: string) => {
-  event.returnValue = existsSync(path);
-});
-
-// File system operations
-ipcMain.handle('fs:read-file', async (event, filePath: string): Promise<string> => {
-  const fs = require('fs').promises;
-  try {
-    // fs is already the promises API object, so call readFile directly
-    return await fs.readFile(filePath, 'utf8');
-  } catch (error) {
-    throw new Error(`Failed to read file ${filePath}: ${error}`);
-  }
-});
-
-ipcMain.handle('fs:write-file', async (event, filePath: string, content: string): Promise<void> => {
-  const fs = require('fs').promises;
-  const path = require('path');
-  
-  try {
-    // Ensure directory exists
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, content, 'utf8');
-  } catch (error) {
-    throw new Error(`Failed to write file ${filePath}: ${error}`);
-  }
-});
-
-ipcMain.handle('fs:create-project-dir', async (event, projectPath: string): Promise<void> => {
+ipcMain.handle('fs:create-project-dir', async (_, projectPath: string): Promise<void> => {
   try {
     if (!existsSync(projectPath)) {
       mkdirSync(projectPath, { recursive: true });
@@ -621,7 +275,7 @@ ipcMain.handle('fs:create-project-dir', async (event, projectPath: string): Prom
   }
 });
 
-ipcMain.handle('fs:list-files', async (event, dirPath: string): Promise<string[]> => {
+ipcMain.handle('fs:list-files', async (_, dirPath: string): Promise<string[]> => {
   try {
     if (!existsSync(dirPath)) {
       return [];
@@ -632,7 +286,7 @@ ipcMain.handle('fs:list-files', async (event, dirPath: string): Promise<string[]
   }
 });
 
-ipcMain.handle('fs:get-file-stats', async (event, filePath: string): Promise<{ isDirectory: boolean; isFile: boolean }> => {
+ipcMain.handle('fs:get-file-stats', async (_, filePath: string): Promise<{ isDirectory: boolean; isFile: boolean }> => {
   try {
     if (!existsSync(filePath)) {
       throw new Error(`Path does not exist: ${filePath}`);
@@ -647,7 +301,7 @@ ipcMain.handle('fs:get-file-stats', async (event, filePath: string): Promise<{ i
   }
 });
 
-ipcMain.handle('fs:read-directory-tree', async (event, dirPath: string): Promise<any> => {
+ipcMain.handle('fs:read-directory-tree', async (_, dirPath: string): Promise<any> => {
   const readTree = (currentPath: string, relativePath: string = ''): any => {
     try {
       if (!existsSync(currentPath)) {
@@ -658,7 +312,6 @@ ipcMain.handle('fs:read-directory-tree', async (event, dirPath: string): Promise
       const tree: any[] = [];
 
       for (const item of items) {
-        // Skip hidden files and certain directories
         if (item.startsWith('.') || item === 'node_modules' || item === 'conversations') {
           continue;
         }
@@ -693,6 +346,28 @@ ipcMain.handle('fs:read-directory-tree', async (event, dirPath: string): Promise
   return readTree(dirPath);
 });
 
+// Path utilities
+ipcMain.handle('path:join', async (_, paths: string[]): Promise<string> => {
+  return join(...paths);
+});
+
+ipcMain.handle('path:basename', async (_, filePath: string, ext?: string): Promise<string> => {
+  return require('path').basename(filePath, ext);
+});
+
+ipcMain.handle('path:dirname', async (_, filePath: string): Promise<string> => {
+  return require('path').dirname(filePath);
+});
+
+ipcMain.handle('path:resolve', async (_, paths: string[]): Promise<string> => {
+  return resolve(...paths);
+});
+
+ipcMain.handle('path:relative', async (_, from: string, to: string): Promise<string> => {
+  return require('path').relative(from, to);
+});
+
+// App utilities
 ipcMain.handle('app:get-app-data-path', async (): Promise<string> => {
   return app.getPath('userData');
 });
@@ -705,7 +380,6 @@ ipcMain.handle('app:initialize-prestige-folder', async (): Promise<string> => {
   const desktopPath = app.getPath('desktop');
   const prestigeAIPath = join(desktopPath, 'prestige-ai');
   
-  // Create prestige-ai folder if it doesn't exist
   if (!existsSync(prestigeAIPath)) {
     mkdirSync(prestigeAIPath, { recursive: true });
     console.log(`Created prestige-ai folder at: ${prestigeAIPath}`);
@@ -718,28 +392,18 @@ ipcMain.handle('app:get-cwd', async (): Promise<string> => {
   return process.cwd();
 });
 
-// Path utility handlers
-ipcMain.handle('path:join', async (event, paths: string[]): Promise<string> => {
-  return join(...paths);
+// Environment variable handlers
+ipcMain.on('env:get-var', (event, name: string) => {
+  event.returnValue = process.env[name];
 });
 
-ipcMain.handle('path:basename', async (event, filePath: string, ext?: string): Promise<string> => {
-  const path = require('path');
-  return path.basename(filePath, ext);
-});
-
-ipcMain.handle('path:dirname', async (event, filePath: string): Promise<string> => {
-  const path = require('path');
-  return path.dirname(filePath);
-});
-
-ipcMain.handle('path:resolve', async (event, paths: string[]): Promise<string> => {
-  return resolve(...paths);
-});
-
-ipcMain.handle('path:relative', async (event, from: string, to: string): Promise<string> => {
-  const path = require('path');
-  return path.relative(from, to);
+ipcMain.handle('env:get-all-vars', async (): Promise<Record<string, string | undefined>> => {
+  return {
+    'OPENAI_API_KEY': process.env.OPENAI_API_KEY,
+    'ANTHROPIC_API_KEY': process.env.ANTHROPIC_API_KEY,
+    'GOOGLE_API_KEY': process.env.GOOGLE_API_KEY,
+    'OPENROUTER_API_KEY': process.env.OPENROUTER_API_KEY,
+  };
 });
 
 // Clean up old temp files on startup
@@ -771,327 +435,4 @@ function cleanupOldTempFiles(): void {
 // Clean up old temp files on startup
 app.whenReady().then(() => {
   cleanupOldTempFiles();
-});
-
-// Terminal Session Management
-interface TerminalSession {
-  id: string;
-  pid: number;
-  process: pty.IPty;
-  cwd: string;
-  appId?: number;
-}
-
-const terminalSessions: Map<string, TerminalSession> = new Map();
-
-// Utility to enhance PATH with common locations
-function enhancePath(currentPath: string): string {
-  const commonPaths = [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
-    '/usr/bin',
-    '/bin',
-    process.env.HOME + '/.local/bin',
-    process.env.HOME + '/bin',
-    // Add npm global bins
-    '/usr/local/lib/node_modules/.bin',
-    process.env.HOME + '/.npm-global/bin',
-    // Add Homebrew paths for M1/M2 Macs
-    '/opt/homebrew/bin',
-    '/opt/homebrew/sbin',
-    // Add NVM paths for Node.js binaries (where Claude CLI might be installed)
-    process.env.HOME + '/.nvm/versions/node/v18.20.8/bin',
-    process.env.HOME + '/.nvm/versions/node/v20.15.1/bin',
-    process.env.HOME + '/.nvm/versions/node/v22.5.1/bin',
-    // Add common NVM current/default paths
-    process.env.NVM_BIN,
-    process.env.HOME + '/.nvm/current/bin'
-  ].filter(Boolean); // Remove any undefined values
-
-  const pathSeparator = process.platform === 'win32' ? ';' : ':';
-  const pathComponents = currentPath.split(pathSeparator);
-  
-  // Add missing common paths to the beginning of PATH for priority
-  commonPaths.forEach(path => {
-    if (path && !pathComponents.includes(path)) {
-      pathComponents.unshift(path);
-    }
-  });
-
-  const enhancedPath = pathComponents.join(pathSeparator);
-  console.log('🔧 Enhanced PATH for CLI detection:', enhancedPath);
-  return enhancedPath;
-}
-
-// Terminal IPC Handlers
-ipcMain.handle('terminal:create-session', async (_, options: {
-  cwd: string;
-  env?: Record<string, string>;
-  cols: number;
-  rows: number;
-  appId?: number;
-  appName?: string;
-}): Promise<{ sessionId: string; pid: number }> => {
-  try {
-    const sessionId = `terminal_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    
-    // Determine shell based on platform with improved detection
-    const getShell = () => {
-      if (process.platform === 'win32') {
-        return process.env.COMSPEC || 'cmd.exe';
-      }
-      return process.env.SHELL || '/bin/bash';
-    };
-    
-    const shell = getShell();
-    let shellArgs: string[] = [];
-
-    // Prepare environment with app context
-    const environment = {
-      ...process.env,
-      ...options.env,
-      PRESTIGE_APP_ID: options.appId?.toString(),
-      PRESTIGE_APP_NAME: options.appName,
-      PRESTIGE_APP_PATH: options.cwd,
-      CLAUDE_CODE_WORKING_DIR: options.cwd,
-      PWD: options.cwd,
-      // Ensure PATH includes common locations for Claude Code
-      PATH: enhancePath(process.env.PATH || '')
-    };
-
-    console.log('🖥️ Creating terminal session:', {
-      sessionId,
-      shell,
-      cwd: options.cwd,
-      cwdExists: existsSync(options.cwd),
-      cols: options.cols,
-      rows: options.rows,
-      appId: options.appId,
-      userShell: process.env.SHELL,
-      platform: process.platform
-    });
-
-    // Validate that we have a working directory
-    if (!existsSync(options.cwd)) {
-      throw new Error(`Working directory does not exist: ${options.cwd}`);
-    }
-
-    // Create shell process using node-pty
-    let shellProcess: pty.IPty;
-    try {
-      console.log(`🖥️ Spawning PTY shell: ${shell} ${shellArgs.join(' ')} in ${options.cwd}`);
-      shellProcess = pty.spawn(shell, shellArgs, {
-        name: 'xterm-256color',
-        cols: options.cols,
-        rows: options.rows,
-        cwd: options.cwd,
-        env: environment
-      });
-    } catch (spawnError) {
-      console.error('❌ Failed to spawn PTY shell process:', spawnError);
-      throw new Error(`Failed to spawn PTY shell ${shell}: ${spawnError}`);
-    }
-
-    if (!shellProcess.pid) {
-      throw new Error(`Failed to start shell process: ${shell} - no PID assigned`);
-    }
-
-    const session: TerminalSession = {
-      id: sessionId,
-      pid: shellProcess.pid,
-      process: shellProcess,
-      cwd: options.cwd,
-      appId: options.appId
-    };
-
-    // Set up PTY event forwarding to renderer
-    shellProcess.onData((data: string) => {
-      if (mainWindow?.webContents) {
-        mainWindow.webContents.send(`terminal:data:${sessionId}`, data);
-      }
-    });
-
-    shellProcess.onExit((e: { exitCode: number; signal?: number }) => {
-      if (mainWindow?.webContents) {
-        mainWindow.webContents.send(`terminal:exit:${sessionId}`, e.exitCode);
-      }
-      // Clean up session
-      terminalSessions.delete(sessionId);
-      console.log(`🗑️ Terminal session ${sessionId} cleaned up (exit code: ${e.exitCode})`);
-    });
-
-    // Handle PTY process errors
-    try {
-      // PTY error handling is built into the onExit callback
-      // Additional error handling can be added here if needed
-    } catch (error) {
-      console.error(`Terminal session ${sessionId} error:`, error);
-      
-      // Send error message to terminal
-      if (mainWindow?.webContents) {
-        const errorMsg = `\r\n\x1b[1;31m✗ PTY Error: ${error}\x1b[0m\r\n`;
-        mainWindow.webContents.send(`terminal:data:${sessionId}`, errorMsg);
-        mainWindow.webContents.send(`terminal:exit:${sessionId}`, 1);
-      }
-      
-      terminalSessions.delete(sessionId);
-    }
-
-    terminalSessions.set(sessionId, session);
-
-    console.log('✅ Terminal session created:', {
-      sessionId,
-      pid: shellProcess.pid
-    });
-
-    // Send initial welcome message
-    setTimeout(() => {
-      if (mainWindow?.webContents) {
-        const welcomeMessage = `\x1b[1;32mPrestige AI Terminal Ready\x1b[0m\n\x1b[1;36mApp: ${options.appName || 'Unknown'}\x1b[0m\n\x1b[1;36mPath: ${options.cwd}\x1b[0m\n\n`;
-        mainWindow.webContents.send(`terminal:data:${sessionId}`, welcomeMessage);
-      }
-    }, 100);
-
-    return {
-      sessionId,
-      pid: shellProcess.pid
-    };
-
-  } catch (error) {
-    console.error('❌ Failed to create terminal session:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('terminal:write', async (_, sessionId: string, data: string): Promise<boolean> => {
-  const session = terminalSessions.get(sessionId);
-  if (!session) {
-    console.warn(`Terminal session ${sessionId} not found`);
-    return false;
-  }
-
-  try {
-    session.process.write(data);
-    return true;
-  } catch (error) {
-    console.error(`Failed to write to terminal session ${sessionId}:`, error);
-    return false;
-  }
-});
-
-ipcMain.handle('terminal:resize', async (_, sessionId: string, cols: number, rows: number): Promise<boolean> => {
-  const session = terminalSessions.get(sessionId);
-  if (!session) {
-    console.warn(`Terminal session ${sessionId} not found for resize`);
-    return false;
-  }
-
-  try {
-    session.process.resize(cols, rows);
-    console.log(`Terminal resized for ${sessionId}: ${cols}x${rows}`);
-    return true;
-  } catch (error) {
-    console.error(`Failed to resize terminal session ${sessionId}:`, error);
-    return false;
-  }
-});
-
-ipcMain.handle('terminal:kill', async (_, sessionId: string): Promise<boolean> => {
-  const session = terminalSessions.get(sessionId);
-  if (!session) {
-    console.warn(`Terminal session ${sessionId} not found`);
-    return false;
-  }
-
-  try {
-    session.process.kill();
-    terminalSessions.delete(sessionId);
-    console.log(`🗑️ Terminal session ${sessionId} killed`);
-    return true;
-  } catch (error) {
-    console.error(`Failed to kill terminal session ${sessionId}:`, error);
-    return false;
-  }
-});
-
-ipcMain.handle('terminal:kill-sessions-for-app', async (_, appId: number): Promise<void> => {
-  const sessionsToKill = Array.from(terminalSessions.values()).filter(session => session.appId === appId);
-  
-  for (const session of sessionsToKill) {
-    try {
-      session.process.kill();
-      terminalSessions.delete(session.id);
-      console.log(`🗑️ Terminal session ${session.id} killed for app ${appId}`);
-    } catch (error) {
-      console.error(`Failed to kill terminal session ${session.id}:`, error);
-    }
-  }
-});
-
-ipcMain.handle('terminal:check-claude-availability', async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const child = spawn('claude', ['--version'], { 
-      stdio: 'pipe',
-      shell: true,
-      env: {
-        ...process.env,
-        PATH: enhancePath(process.env.PATH || '')
-      }
-    });
-
-    let output = '';
-    let stderr = '';
-    
-    child.stdout?.on('data', (data) => {
-      output += data.toString();
-    });
-    
-    child.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      // More robust detection - check for Claude Code in output or successful exit with version info
-      const outputText = (output + stderr).toLowerCase();
-      const hasClaudeInOutput = outputText.includes('claude');
-      const hasVersionPattern = /\d+\.\d+\.\d+/.test(output + stderr);
-      const isAvailable = code === 0 && (hasClaudeInOutput || hasVersionPattern);
-      
-      console.log('🔍 Enhanced Claude Code availability check:', { 
-        isAvailable, 
-        code, 
-        output: output.trim(), 
-        stderr: stderr.trim(),
-        hasClaudeInOutput,
-        hasVersionPattern
-      });
-      resolve(isAvailable);
-    });
-
-    child.on('error', (error) => {
-      console.log('🔍 Enhanced Claude Code availability check failed:', error.message);
-      resolve(false);
-    });
-
-    // Timeout after 3 seconds (reduced from 5)
-    setTimeout(() => {
-      child.kill();
-      console.log('🔍 Claude Code availability check timed out');
-      resolve(false);
-    }, 3000);
-  });
-});
-
-// Clean up terminal sessions on app quit
-app.on('before-quit', () => {
-  console.log('🧹 Cleaning up terminal sessions before quit...');
-  for (const [sessionId, session] of terminalSessions.entries()) {
-    try {
-      session.process.kill();
-      console.log(`🗑️ Killed terminal session ${sessionId}`);
-    } catch (error) {
-      console.error(`Failed to kill terminal session ${sessionId}:`, error);
-    }
-  }
-  terminalSessions.clear();
 });
