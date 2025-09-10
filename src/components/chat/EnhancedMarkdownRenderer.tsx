@@ -64,7 +64,7 @@ export const EnhancedMarkdownRenderer: React.FC<EnhancedMarkdownRendererProps> =
       {thinkingContent && (
         <ThinkingBlock
           content={thinkingContent}
-          state={isStreaming ? "pending" : "finished"}
+          isStreaming={isStreaming}
         />
       )}
       

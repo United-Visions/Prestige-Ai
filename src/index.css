@@ -2,50 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    /* Prestige Brand Colors - Light Theme */
+    --background: 245 250 255; /* Cool white with slight blue tint */
+    --foreground: 215 25% 15%; /* Deep charcoal blue */
+    --card: 255 255 255; /* Pure white */
+    --card-foreground: 215 25% 15%;
+    --popover: 255 255 255;
+    --popover-foreground: 215 25% 15%;
+    
+    /* Primary - Prestige Purple/Blue Gradient */
+    --primary: 250 100% 70%; /* Bright electric blue */
+    --primary-foreground: 255 255 255;
+    --primary-hover: 245 100% 65%;
+    
+    /* Secondary - Sophisticated Gray */
+    --secondary: 225 15% 95%; /* Light gray with blue undertone */
+    --secondary-foreground: 215 25% 25%;
+    
+    /* Accent - Prestige Gold */
+    --accent: 45 100% 70%; /* Gold accent */
+    --accent-foreground: 215 25% 15%;
+    
+    /* Status Colors */
+    --success: 142 76% 36%;
+    --success-foreground: 255 255 255;
+    --warning: 38 92% 50%;
+    --warning-foreground: 255 255 255;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 255 255 255;
+    
+    /* Neutral Tones */
+    --muted: 225 15% 96%;
+    --muted-foreground: 215 15% 45%;
+    --border: 225 15% 88%;
+    --input: 225 15% 94%;
+    --ring: 250 100% 70%;
+    
+    /* Enhanced Radius for Modern Look */
+    --radius: 0.75rem;
+    
+    /* Custom Prestige Variables */
+    --gradient-primary: linear-gradient(135deg, hsl(250 100% 70%) 0%, hsl(280 100% 75%) 100%);
+    --gradient-secondary: linear-gradient(135deg, hsl(225 15% 95%) 0%, hsl(225 15% 92%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(45 100% 70%) 0%, hsl(35 100% 65%) 100%);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    /* Prestige Brand Colors - Dark Theme */
+    --background: 215 30% 6%; /* Deep dark blue */
+    --foreground: 225 15% 95%;
+    --card: 215 25% 8%;
+    --card-foreground: 225 15% 95%;
+    --popover: 215 25% 8%;
+    --popover-foreground: 225 15% 95%;
+    
+    /* Primary - Brighter for dark theme */
+    --primary: 250 100% 75%;
+    --primary-foreground: 215 30% 6%;
+    --primary-hover: 255 100% 80%;
+    
+    /* Secondary */
+    --secondary: 215 25% 12%;
+    --secondary-foreground: 225 15% 85%;
+    
+    /* Accent */
+    --accent: 45 100% 65%;
+    --accent-foreground: 215 30% 6%;
+    
+    /* Status Colors (adjusted for dark theme) */
+    --success: 142 70% 45%;
+    --success-foreground: 215 30% 6%;
+    --warning: 38 90% 55%;
+    --warning-foreground: 215 30% 6%;
+    --destructive: 0 75% 65%;
+    --destructive-foreground: 215 30% 6%;
+    
+    /* Neutral Tones */
+    --muted: 215 25% 10%;
+    --muted-foreground: 215 15% 65%;
+    --border: 215 25% 15%;
+    --input: 215 25% 12%;
+    --ring: 250 100% 75%;
+    
+    /* Dark theme gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(250 100% 75%) 0%, hsl(280 100% 80%) 100%);
+    --gradient-secondary: linear-gradient(135deg, hsl(215 25% 12%) 0%, hsl(215 25% 15%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(45 100% 65%) 0%, hsl(35 100% 60%) 100%);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
   }
 }
 
@@ -53,7 +108,96 @@
   * {
     @apply border-border;
   }
+  
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+  
+  code, pre {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  }
+}
+
+@layer components {
+  /* Prestige Brand Components */
+  .prestige-gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .prestige-gradient-bg {
+    background: var(--gradient-primary);
+  }
+  
+  .prestige-card {
+    @apply bg-card border border-border rounded-xl shadow-md transition-all duration-200;
+  }
+  
+  .prestige-card:hover {
+    @apply shadow-lg border-primary/20;
+  }
+  
+  .prestige-button-primary {
+    @apply bg-primary hover:bg-primary-hover text-primary-foreground font-medium px-6 py-2.5 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  }
+  
+  .prestige-input {
+    @apply border border-input bg-background px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all duration-200;
+  }
+  
+  /* Glass morphism effects */
+  .glass-card {
+    @apply backdrop-blur-md bg-card/80 border border-border/50;
+  }
+  
+  /* Modern scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-muted/30 rounded-full;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-primary/20 rounded-full hover:bg-primary/30;
+  }
+  
+  /* Animation utilities */
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 3s ease infinite;
+  }
+  
+  @keyframes gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+  
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+  
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.1); }
+    50% { box-shadow: 0 0 30px hsl(var(--primary) / 0.3); }
   }
 }

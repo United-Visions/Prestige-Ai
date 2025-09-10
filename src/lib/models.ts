@@ -27,6 +27,16 @@ export const LargeLanguageModelSchema = z.object({
 
 export type LargeLanguageModel = z.infer<typeof LargeLanguageModelSchema>;
 
+export interface ProviderInfo {
+  id: ModelProvider;
+  name: string;
+  description: string;
+  models: LargeLanguageModel[];
+  apiKeyRequired: boolean;
+  icon: string;
+  envVar?: string;
+}
+
 // OpenAI models
 export const openaiModels: LargeLanguageModel[] = [
   {

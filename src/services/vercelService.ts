@@ -537,6 +537,27 @@ export class VercelService {
   }
 
   /**
+   * Set access token
+   */
+  setToken(token: string) {
+    this.accessToken = token;
+  }
+
+  /**
+   * Get current user (alias for getUser)
+   */
+  async getCurrentUser(): Promise<VercelUser | null> {
+    return this.getUser();
+  }
+
+  /**
+   * Clear authentication
+   */
+  clearAuth() {
+    this.logout();
+  }
+
+  /**
    * Logout and clear access token
    */
   logout() {

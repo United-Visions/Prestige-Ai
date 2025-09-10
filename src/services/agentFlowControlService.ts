@@ -63,6 +63,7 @@ export interface AgentRequest {
   id: string;
   content: string;
   appId?: number;
+  shouldBlock: boolean;
   detectedIntentions: {
     requiresDatabase: boolean;
     requiresAuthentication: boolean;
@@ -143,10 +144,14 @@ export class AgentFlowControlService {
       requiresEmailService: this.detectPattern(content, INTEGRATION_PATTERNS.email_service),
     };
 
+    // Determine if we should block based on detected intentions and missing integrations
+    const shouldBlock = Object.values(detectedIntentions).some(Boolean);
+
     return {
       id: this.generateId(),
       content,
       appId,
+      shouldBlock,
       detectedIntentions,
       timestamp: Date.now(),
     };

@@ -3,7 +3,17 @@ import { devtools } from 'zustand/middleware';
 import type { Message, App, Conversation } from '@/types';
 import { LargeLanguageModel, DEFAULT_MODEL } from '@/lib/models';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
+import { GitHubService } from '@/services/githubService';
+import { VercelService } from '@/services/vercelService';
+import { SupabaseService } from '@/services/supabaseService';
 import AppStateManager from '@/services/appStateManager';
+
+interface IntegrationStatus {
+  connected: boolean;
+  loading: boolean;
+  error?: string;
+  user?: any;
+}
 
 interface AppState {
   apps: App[];
@@ -14,6 +24,11 @@ interface AppState {
   isGenerating: boolean;
   error: string | null;
   chatSummary: string | null;
+  
+  // Integration status
+  githubStatus: IntegrationStatus;
+  vercelStatus: IntegrationStatus;
+  supabaseStatus: IntegrationStatus;
 
   // Actions
   loadApps: () => Promise<void>;
@@ -30,6 +45,15 @@ interface AppState {
   setChatSummary: (summary: string | null) => void;
   setIsGenerating: (isGenerating: boolean) => void;
   setError: (error: string | null) => void;
+  
+  // Integration actions
+  checkIntegrationStatuses: () => Promise<void>;
+  connectGitHub: () => Promise<void>;
+  connectVercel: (token: string) => Promise<void>;
+  connectSupabase: (token: string) => Promise<void>;
+  disconnectGitHub: () => void;
+  disconnectVercel: () => void;
+  disconnectSupabase: () => void;
 }
 
 const useAppStore = create<AppState>()(
@@ -44,6 +68,11 @@ const useAppStore = create<AppState>()(
       isGenerating: false,
       error: null,
       chatSummary: null,
+      
+      // Integration status
+      githubStatus: { connected: false, loading: false },
+      vercelStatus: { connected: false, loading: false },
+      supabaseStatus: { connected: false, loading: false },
       
       // Actions
       loadApps: async () => {
@@ -239,6 +268,160 @@ const useAppStore = create<AppState>()(
       
       setError: (error: string | null) => {
         set({ error });
+      },
+
+      // Integration actions
+      checkIntegrationStatuses: async () => {
+        const githubService = GitHubService.getInstance();
+        const vercelService = VercelService.getInstance();
+        const supabaseService = SupabaseService.getInstance();
+
+        // Check GitHub status
+        set((state) => ({ 
+          githubStatus: { ...state.githubStatus, loading: true, error: undefined }
+        }));
+        try {
+          const user = await githubService.getCurrentUser();
+          set((state) => ({ 
+            githubStatus: { connected: !!user, loading: false, user }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            githubStatus: { 
+              connected: false, 
+              loading: false, 
+              error: 'Failed to check GitHub status' 
+            }
+          }));
+        }
+
+        // Check Vercel status
+        set((state) => ({ 
+          vercelStatus: { ...state.vercelStatus, loading: true, error: undefined }
+        }));
+        try {
+          const user = await vercelService.getCurrentUser();
+          set((state) => ({ 
+            vercelStatus: { connected: !!user, loading: false, user }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            vercelStatus: { 
+              connected: false, 
+              loading: false, 
+              error: 'Failed to check Vercel status' 
+            }
+          }));
+        }
+
+        // Check Supabase status
+        set((state) => ({ 
+          supabaseStatus: { ...state.supabaseStatus, loading: true, error: undefined }
+        }));
+        try {
+          const orgs = await supabaseService.getOrganizations();
+          set((state) => ({ 
+            supabaseStatus: { connected: orgs.length > 0, loading: false }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            supabaseStatus: { 
+              connected: false, 
+              loading: false, 
+              error: 'Failed to check Supabase status' 
+            }
+          }));
+        }
+      },
+
+      connectGitHub: async () => {
+        const githubService = GitHubService.getInstance();
+        set((state) => ({ 
+          githubStatus: { ...state.githubStatus, loading: true, error: undefined }
+        }));
+        
+        try {
+          await githubService.authenticateWithDeviceFlow();
+          const user = await githubService.getCurrentUser();
+          set((state) => ({ 
+            githubStatus: { connected: true, loading: false, user }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            githubStatus: { 
+              connected: false, 
+              loading: false, 
+              error: error instanceof Error ? error.message : 'Failed to connect GitHub' 
+            }
+          }));
+          throw error;
+        }
+      },
+
+      connectVercel: async (token: string) => {
+        const vercelService = VercelService.getInstance();
+        set((state) => ({ 
+          vercelStatus: { ...state.vercelStatus, loading: true, error: undefined }
+        }));
+        
+        try {
+          vercelService.setToken(token);
+          const user = await vercelService.getCurrentUser();
+          set((state) => ({ 
+            vercelStatus: { connected: true, loading: false, user }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            vercelStatus: { 
+              connected: false, 
+              loading: false, 
+              error: error instanceof Error ? error.message : 'Failed to connect Vercel' 
+            }
+          }));
+          throw error;
+        }
+      },
+
+      connectSupabase: async (token: string) => {
+        const supabaseService = SupabaseService.getInstance();
+        set((state) => ({ 
+          supabaseStatus: { ...state.supabaseStatus, loading: true, error: undefined }
+        }));
+        
+        try {
+          supabaseService.setToken(token);
+          const orgs = await supabaseService.getOrganizations();
+          set((state) => ({ 
+            supabaseStatus: { connected: orgs.length > 0, loading: false }
+          }));
+        } catch (error) {
+          set((state) => ({ 
+            supabaseStatus: { 
+              connected: false, 
+              loading: false, 
+              error: error instanceof Error ? error.message : 'Failed to connect Supabase' 
+            }
+          }));
+          throw error;
+        }
+      },
+
+      disconnectGitHub: () => {
+        const githubService = GitHubService.getInstance();
+        githubService.clearAuth();
+        set({ githubStatus: { connected: false, loading: false } });
+      },
+
+      disconnectVercel: () => {
+        const vercelService = VercelService.getInstance();
+        vercelService.clearAuth();
+        set({ vercelStatus: { connected: false, loading: false } });
+      },
+
+      disconnectSupabase: () => {
+        const supabaseService = SupabaseService.getInstance();
+        supabaseService.clearAuth();
+        set({ supabaseStatus: { connected: false, loading: false } });
       },
     }),
     {

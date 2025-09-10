@@ -362,6 +362,28 @@ export class GitHubService {
   }
 
   /**
+   * Get current user (alias for getUser)
+   */
+  async getCurrentUser(): Promise<GitHubUser | null> {
+    return this.getUser();
+  }
+
+  /**
+   * Authenticate with device flow (alias for startDeviceFlow)
+   */
+  async authenticateWithDeviceFlow(): Promise<string> {
+    const deviceFlow = await this.startDeviceFlow();
+    return this.startPolling();
+  }
+
+  /**
+   * Clear authentication
+   */
+  clearAuth() {
+    this.logout();
+  }
+
+  /**
    * Logout and clear access token
    */
   logout() {

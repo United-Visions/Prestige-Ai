@@ -3,7 +3,8 @@ import useAppStore from '@/stores/appStore';
 import { useAIStore } from '@/store/aiStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Trash2, MessageSquare, ArrowLeft, Play } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { PlusCircle, Trash2, MessageSquare, ArrowLeft, Play, Crown, Sparkles } from 'lucide-react';
 
 export function AppSidebar() {
   const { 

@@ -420,6 +420,20 @@ export class SupabaseService {
   }
 
   /**
+   * Set token (alias for setTokens)
+   */
+  setToken(token: string) {
+    this.setTokens(token, '', 3600); // Default 1 hour expiry
+  }
+
+  /**
+   * Clear authentication
+   */
+  clearAuth() {
+    this.logout();
+  }
+
+  /**
    * Logout and clear tokens
    */
   logout() {

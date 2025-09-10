@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ThemeProvider } from '@/components/theme-provider';
 
 function App() {
   useEffect(() => {
@@ -19,11 +20,13 @@ function App() {
   }, []);
 
   return (
-    <TooltipProvider>
-      <div className="min-h-screen bg-background">
-        <ChatInterface />
-      </div>
-    </TooltipProvider>
+    <ThemeProvider defaultTheme="light" storageKey="prestige-ui-theme">
+      <TooltipProvider>
+        <div className="min-h-screen bg-background">
+          <ChatInterface />
+        </div>
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 

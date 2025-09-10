@@ -392,6 +392,18 @@ ipcMain.handle('app:get-cwd', async (): Promise<string> => {
   return process.cwd();
 });
 
+// Combined paths utility similar to Dyad expectation
+// Returns locations needed by template/scaffold logic in renderer
+ipcMain.handle('app:get-paths', async () => {
+  // In packaged builds, Electron's resources path differs; expose both
+  const isPackaged = app.isPackaged;
+  // resourcesPath: where extra assets (like scaffold) would be placed when packaged
+  const resourcesPath = process.resourcesPath || app.getAppPath();
+  // appPath: development project root (unpacked path during dev)
+  const appPath = app.getAppPath();
+  return { resourcesPath, appPath, isPackaged };
+});
+
 // Environment variable handlers
 ipcMain.on('env:get-var', (event, name: string) => {
   event.returnValue = process.env[name];

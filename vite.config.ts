@@ -56,7 +56,7 @@ export default defineConfig({
     renderer(),
   ],
   optimizeDeps: {
-    exclude: ['better-sqlite3'],
+    exclude: ['better-sqlite3', '@opentelemetry/api'],
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),

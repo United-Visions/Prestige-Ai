@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Eye, EyeOff, Key, AlertCircle, CheckCircle, Info } from 'lucide-react';
 import { useApiKeyStore } from '@/lib/apiKeys';
 import { modelProviders } from '@/lib/models';
-import type { ModelProvider } from '@/lib/models';
+import type { ModelProvider, ProviderInfo } from '@/lib/models';
 
 // Helper function to mask ENV API keys
 const maskEnvApiKey = (key: string | undefined): string => {
@@ -66,8 +66,8 @@ export function ApiKeyDialog({ isOpen, onClose }: ApiKeyDialogProps) {
     }));
   };
 
-  const getStatusBadge = (provider: ModelProvider) => {
-    const status = getProviderStatus(provider);
+  const getStatusBadge = (provider: ProviderInfo) => {
+    const status = getProviderStatus(provider.id);
     const currentKey = getApiKey(provider.id);
     const envKey = provider.envVar ? envVars[provider.envVar] : undefined;
     
@@ -120,7 +120,7 @@ export function ApiKeyDialog({ isOpen, onClose }: ApiKeyDialogProps) {
                       <p className="text-sm text-muted-foreground">{provider.description}</p>
                     </div>
                   </div>
-                  {getStatusBadge(provider.id)}
+                  {getStatusBadge(provider)}
                 </div>
 
                 <Accordion

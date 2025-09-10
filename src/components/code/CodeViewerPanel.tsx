@@ -601,98 +601,113 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
 
   return (
     <div 
-      className={`fixed top-0 left-0 right-0 bottom-0 z-50 transition-all duration-300 ease-in-out ${
+      className={`fixed top-0 left-0 right-0 bottom-0 z-50 transition-all duration-500 ease-in-out ${
         isVisible ? 'translate-y-0' : 'translate-y-full'
       } ${className}`}
     >
-      <Card className="h-full rounded-t-lg rounded-b-none border-t shadow-lg bg-background">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 border-b">
-          <div className="flex items-center gap-4">
+      <Card className="h-full rounded-t-2xl rounded-b-none border-t border-border/50 shadow-2xl bg-gradient-to-br from-background via-background to-background/95 backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 border-b border-border/30 bg-gradient-to-r from-prestige-primary/5 via-prestige-secondary/5 to-prestige-accent/5">
+          <div className="flex items-center gap-6">
             <div className="flex flex-col">
-              <h3 className="text-lg font-semibold">
-                {selectedFile ? selectedFile.name : (currentApp ? currentApp.name : 'Code Viewer')}
-              </h3>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-prestige-primary to-prestige-secondary flex items-center justify-center">
+                  <Code2 className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-xl font-semibold bg-gradient-to-r from-prestige-primary via-prestige-secondary to-prestige-accent bg-clip-text text-transparent">
+                  {selectedFile ? selectedFile.name : (currentApp ? currentApp.name : 'Prestige Code Viewer')}
+                </h3>
+              </div>
               {selectedFile && (
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>{selectedFile.path}</span>
-                  <span>•</span>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2 ml-11">
+                  <span className="flex items-center gap-1">
+                    <Folder className="w-3 h-3" />
+                    {selectedFile.path}
+                  </span>
+                  <span className="text-prestige-secondary">•</span>
                   <span>{getLineCount(selectedFile.content || '')} lines</span>
-                  <span>•</span>
+                  <span className="text-prestige-secondary">•</span>
                   <span>{formatFileSize(selectedFile.content || '')}</span>
-                  <span>•</span>
-                  <span className="capitalize">{getLanguageFromExtension(selectedFile.name)}</span>
+                  <span className="text-prestige-secondary">•</span>
+                  <span className="capitalize px-2 py-1 bg-prestige-primary/10 text-prestige-primary rounded-md text-xs font-medium">
+                    {getLanguageFromExtension(selectedFile.name)}
+                  </span>
                 </div>
               )}
               {!selectedFile && currentApp && (
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>{currentApp.files?.length || 0} files</span>
-                  <span>•</span>
-                  <span>Project files</span>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2 ml-11">
+                  <span className="flex items-center gap-1">
+                    <Folder className="w-3 h-3" />
+                    {currentApp.files?.length || 0} files
+                  </span>
+                  <span className="text-prestige-secondary">•</span>
+                  <span className="px-2 py-1 bg-prestige-secondary/10 text-prestige-secondary rounded-md text-xs font-medium">
+                    Project files
+                  </span>
                 </div>
               )}
             </div>
             
-            {/* Tabs */}
-            <div className="ml-4">
-              <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+            {/* Premium Tabs */}
+            <div className="ml-6">
+              <div className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-r from-white/50 to-white/30 backdrop-blur-sm p-1.5 shadow-inner border border-white/20">
                 <button
                   onClick={() => setActiveTab('code')}
-                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 gap-1 ${
+                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-all duration-300 gap-2 ${
                     activeTab === 'code'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'hover:bg-muted/80'
+                      ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg scale-105'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-white/30'
                   }`}
                 >
                   <Code2 className="w-4 h-4" />
-                  Code
+                  <span>Code</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('preview')}
-                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 gap-1 ${
+                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-all duration-300 gap-2 ${
                     activeTab === 'preview'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'hover:bg-muted/80'
+                      ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg scale-105'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-white/30'
                   }`}
                 >
                   <Play className="w-4 h-4" />
-                  Preview
+                  <span>Preview</span>
                 </button>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {activeTab === 'code' && (
               <>
                 {selectedFile && !isEditing && (
                   <>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={handleCopy}
-                      className="h-8 w-8 p-0"
+                      className="h-9 w-9 p-0 rounded-xl"
                       title="Copy to clipboard"
                     >
                       <Copy className="w-4 h-4" />
                     </Button>
                     
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={handleDownload}
-                      className="h-8 w-8 p-0"
+                      className="h-9 w-9 p-0 rounded-xl"
                       title="Download file"
                     >
                       <Download className="w-4 h-4" />
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={() => {
                         setEditedContent(selectedFile.content || '');
                         setIsEditing(true);
                       }}
-                      className="h-8 w-8 p-0"
+                      className="h-9 w-9 p-0 rounded-xl"
                       title="Edit file"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -702,7 +717,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 {selectedFile && isEditing && (
                   <>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={async () => {
                         if (!currentApp) return;
@@ -730,37 +745,42 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                         }
                       }}
                       disabled={isSaving}
-                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
                       title="Save file"
                     >
-                      <Save className="w-4 h-4" />
+                      <Save className="w-4 h-4 mr-1" />
+                      {isSaving ? 'Saving...' : 'Save'}
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       disabled={isSaving}
                       onClick={() => { setIsEditing(false); setEditedContent(''); }}
-                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white"
                       title="Cancel editing"
                     >
-                      <XCircle className="w-4 h-4" />
+                      <XCircle className="w-4 h-4 mr-1" />
+                      Cancel
                     </Button>
                   </>
                 )}
                 
                 {/* File tree action buttons */}
                 <Button
-                  variant="ghost"
+                  variant="premium"
                   size="sm"
                   onClick={() => {
                     const newState = !showFileTree;
                     console.log('Files button clicked. Current state:', showFileTree, 'New state:', newState);
                     setShowFileTree(newState);
                   }}
-                  className={`h-8 px-3 ${showFileTree ? 'bg-blue-100 text-blue-700' : ''}`}
+                  className={`h-9 px-4 rounded-xl ${showFileTree 
+                    ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg' 
+                    : 'bg-white/20 backdrop-blur-sm hover:bg-white/30'
+                  }`}
                   title="Toggle File Tree"
                 >
-                  <Folder className="w-4 h-4 mr-1" />
+                  <Folder className="w-4 h-4 mr-2" />
                   Files
                 </Button>
               </>
@@ -770,52 +790,52 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
               <>
                 {!isRunning ? (
                   <Button
-                    variant="ghost"
+                    variant="premium"
                     size="sm"
                     onClick={startApp}
                     disabled={isStarting || !currentApp}
-                    className="h-8 px-3"
+                    className="h-9 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg"
                     title="Start App"
                   >
-                    <Play className="w-4 h-4 mr-1" />
-                    {isStarting ? 'Starting...' : 'Start'}
+                    <Play className="w-4 h-4 mr-2" />
+                    {isStarting ? 'Starting...' : 'Start App'}
                   </Button>
                 ) : (
                   <Button
-                    variant="ghost"
+                    variant="premium"
                     size="sm"
                     onClick={stopApp}
-                    className="h-8 px-3"
+                    className="h-9 px-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg"
                     title="Stop App"
                   >
-                    <Square className="w-4 h-4 mr-1" />
-                    Stop
+                    <Square className="w-4 h-4 mr-2" />
+                    Stop App
                   </Button>
                 )}
                 
                 {isRunning && (
                   <>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={() => restartApp(false)}
                       disabled={isStarting}
-                      className="h-8 px-3"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 text-white"
                       title="Restart App"
                     >
-                      <RotateCcw className="w-4 h-4 mr-1" />
+                      <RotateCcw className="w-4 h-4 mr-2" />
                       Restart
                     </Button>
                     
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={rebuildApp}
                       disabled={isStarting}
-                      className="h-8 px-3"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white"
                       title="Rebuild App (clean node_modules & reinstall from updated package.json)"
                     >
-                      <Hammer className="w-4 h-4 mr-1" />
+                      <Hammer className="w-4 h-4 mr-2" />
                       Rebuild
                     </Button>
                   </>
@@ -824,25 +844,25 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 {errorReport?.hasErrors && (
                   <>
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={autoFixErrors}
                       disabled={isFixingErrors}
-                      className="h-8 px-3 text-orange-600 hover:text-orange-700"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-lg animate-pulse"
                       title={`Fix ${errorReport.buildErrors.length + errorReport.runtimeErrors.length} error(s) automatically`}
                     >
-                      <AlertTriangle className="w-4 h-4 mr-1" />
-                      {isFixingErrors ? 'Fixing...' : `Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
+                      <AlertTriangle className="w-4 h-4 mr-2" />
+                      {isFixingErrors ? 'Fixing...' : `Auto-Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
                     </Button>
                     
                     <Button
-                      variant="ghost"
+                      variant="premium"
                       size="sm"
                       onClick={sendErrorsToTerminal}
-                      className="h-8 px-3 text-blue-600 hover:text-blue-700"
+                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white"
                       title="Send error summary to terminal for Claude Code CLI"
                     >
-                      <Send className="w-4 h-4 mr-1" />
+                      <Send className="w-4 h-4 mr-2" />
                       Send to Terminal
                     </Button>
                   </>
@@ -850,56 +870,61 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 
                 {appUrl && (
                   <Button
-                    variant="ghost"
+                    variant="premium"
                     size="sm"
                     onClick={refreshIframe}
-                    className="h-8 px-3"
+                    className="h-9 px-4 rounded-xl bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30"
                     title="Refresh Preview"
                   >
-                    <RefreshCw className="w-4 h-4 mr-1" />
+                    <RefreshCw className="w-4 h-4 mr-2" />
                     Refresh
                   </Button>
                 )}
                 
                 <Button
-                  variant="ghost"
+                  variant="premium"
                   size="sm"
                   onClick={() => setShowLogs(!showLogs)}
-                  className={`h-8 px-3 ${showLogs ? 'bg-blue-100 text-blue-700' : ''}`}
+                  className={`h-9 px-4 rounded-xl ${showLogs 
+                    ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg' 
+                    : 'bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30'
+                  }`}
                   title="Toggle Logs"
                 >
-                  <Terminal className="w-4 h-4 mr-1" />
+                  <Terminal className="w-4 h-4 mr-2" />
                   Logs
                 </Button>
               </>
             )}
             
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="h-8 w-8 p-0"
-              title={isExpanded ? "Minimize" : "Maximize"}
-            >
-              {isExpanded ? 
-                <ChevronDown className="w-4 h-4" /> : 
-                <ChevronUp className="w-4 h-4" />
-              }
-            </Button>
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={hideCodeViewer}
-              className="h-8 w-8 p-0"
-              title="Close"
-            >
-              <X className="w-4 h-4" />
-            </Button>
+            <div className="flex items-center gap-2 ml-2 pl-2 border-l border-white/20">
+              <Button
+                variant="premium"
+                size="sm"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="h-9 w-9 p-0 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 border border-white/20"
+                title={isExpanded ? "Minimize" : "Maximize"}
+              >
+                {isExpanded ? 
+                  <ChevronDown className="w-4 h-4" /> : 
+                  <ChevronUp className="w-4 h-4" />
+                }
+              </Button>
+              
+              <Button
+                variant="premium"
+                size="sm"
+                onClick={hideCodeViewer}
+                className="h-9 w-9 p-0 rounded-xl bg-red-500/20 backdrop-blur-sm hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </CardHeader>
         
-        <CardContent className="p-0 h-full overflow-hidden">
+        <CardContent className="p-0 h-full overflow-hidden bg-gradient-to-br from-gray-50/50 via-white to-gray-50/80">
           <div className="h-full flex flex-col">
             {/* Code Tab Content - Code viewer with file tree on the right */}
             {activeTab === 'code' && (
@@ -910,38 +935,74 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                   {selectedFile ? (
                     <div className="h-full flex-1 min-w-0 relative">
                       {!isEditing && (
-                        <pre
-                          onMouseUp={handleTextSelection}
-                          className={`relative p-4 text-sm font-mono leading-relaxed overflow-auto h-full bg-gray-50 w-full selection:bg-blue-300/60 ${showFileTree ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} `}
-                        >
-                          <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
-                            {selectedFile.content}
-                          </code>
-                        </pre>
+                        <div className="relative h-full">
+                          <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 rounded-lg border border-white/10 shadow-2xl overflow-hidden">
+                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-800/50 to-gray-800/50 border-b border-white/10">
+                              <div className="flex items-center gap-3">
+                                <div className="flex gap-1.5">
+                                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                                  <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                </div>
+                                <span className="text-sm font-mono text-gray-400">{selectedFile.name}</span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {getLineCount(selectedFile.content || '')} lines • {formatFileSize(selectedFile.content || '')}
+                              </div>
+                            </div>
+                            <pre
+                              onMouseUp={handleTextSelection}
+                              className={`relative p-6 text-sm font-mono leading-relaxed overflow-auto h-[calc(100%-60px)] text-gray-100 w-full selection:bg-prestige-primary/30 ${showFileTree ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
+                              style={{ backgroundColor: 'transparent' }}
+                            >
+                              <code className={`language-${getLanguageFromExtension(selectedFile.name)}`}>
+                                {selectedFile.content}
+                              </code>
+                            </pre>
+                          </div>
+                        </div>
                       )}
                       {isEditing && (
-                        <textarea
-                          value={editedContent}
-                          onChange={(e) => setEditedContent(e.target.value)}
-                          spellCheck={false}
-                          className="absolute inset-0 w-full h-full font-mono text-sm p-4 bg-white border-0 focus:outline-none resize-none"
-                        />
+                        <div className="h-full relative">
+                          <div className="absolute inset-0 bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-prestige-primary/10 to-prestige-secondary/10 border-b border-gray-200">
+                              <div className="flex items-center gap-3">
+                                <Edit3 className="w-4 h-4 text-prestige-primary" />
+                                <span className="text-sm font-medium">Editing {selectedFile.name}</span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Press Ctrl+S to save • Esc to cancel
+                              </div>
+                            </div>
+                            <textarea
+                              value={editedContent}
+                              onChange={(e) => setEditedContent(e.target.value)}
+                              spellCheck={false}
+                              className="w-full h-[calc(100%-60px)] font-mono text-sm p-6 bg-white border-0 focus:outline-none resize-none text-gray-800"
+                              style={{ tabSize: 2 }}
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
                   ) : !currentApp ? (
-                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                    <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-white text-gray-500">
                       <div className="text-center">
-                        <Folder className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <div className="text-lg font-medium">No App Selected</div>
-                        <div className="text-sm mt-2">Select an app to view its files</div>
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-prestige-primary/20 to-prestige-secondary/20 flex items-center justify-center">
+                          <Folder className="w-12 h-12 text-prestige-primary" />
+                        </div>
+                        <div className="text-xl font-semibold text-gray-700 mb-2">No App Selected</div>
+                        <div className="text-sm text-gray-500">Select an app to view its files</div>
                       </div>
                     </div>
                   ) : (
-                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                    <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-white text-gray-500">
                       <div className="text-center">
-                        <Folder className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <div className="text-lg font-medium">Select a File</div>
-                        <div className="text-sm mt-2">Choose a file from the tree to view its code</div>
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-prestige-secondary/20 to-prestige-accent/20 flex items-center justify-center">
+                          <Code2 className="w-12 h-12 text-prestige-secondary" />
+                        </div>
+                        <div className="text-xl font-semibold text-gray-700 mb-2">Select a File</div>
+                        <div className="text-sm text-gray-500">Choose a file from the tree to view its code</div>
                       </div>
                     </div>
                   )}
@@ -949,11 +1010,16 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
 
                 {/* File tree sidebar - toggleable like logs panel */}
                 {currentApp && showFileTree && (
-                  <div className="w-1/3 border-l bg-gray-50 flex flex-col shrink-0">
-                    <div className="p-3 border-b bg-white">
-                      <h3 className="font-medium">Project Files</h3>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {currentApp.files?.length || 0} files
+                  <div className="w-1/3 border-l border-gray-200/50 bg-gradient-to-b from-white to-gray-50/50 flex flex-col shrink-0 backdrop-blur-sm">
+                    <div className="p-4 border-b border-gray-200/50 bg-gradient-to-r from-prestige-primary/5 to-prestige-secondary/5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-prestige-primary/20 to-prestige-secondary/20 flex items-center justify-center">
+                          <Folder className="w-3 h-3 text-prestige-primary" />
+                        </div>
+                        <h3 className="font-semibold text-gray-800">Project Files</h3>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {currentApp.files?.length || 0} files in {currentApp.name}
                       </div>
                     </div>
                     
@@ -971,64 +1037,103 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 {/* Preview Area */}
                 <div className="flex-1 flex flex-col">
                   {!currentApp ? (
-                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                    <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-white text-gray-500">
                       <div className="text-center">
-                        <div className="text-lg font-medium">No App Selected</div>
-                        <div className="text-sm mt-2">Select an app to see its preview</div>
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-prestige-primary/20 to-prestige-secondary/20 flex items-center justify-center">
+                          <Play className="w-12 h-12 text-prestige-primary" />
+                        </div>
+                        <div className="text-xl font-semibold text-gray-700 mb-2">No App Selected</div>
+                        <div className="text-sm text-gray-500">Select an app to see its preview</div>
                       </div>
                     </div>
                   ) : !isRunning ? (
-                    <div className="h-full flex items-center justify-center bg-gray-50 text-gray-500">
+                    <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-white text-gray-500">
                       <div className="text-center">
-                        <Play className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <div className="text-lg font-medium">App Not Running</div>
-                        <div className="text-sm mt-2">Click Start to run your app</div>
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+                          <Play className="w-12 h-12 text-green-600" />
+                        </div>
+                        <div className="text-xl font-semibold text-gray-700 mb-2">App Not Running</div>
+                        <div className="text-sm text-gray-500 mb-4">Click Start to run your app and see the preview</div>
+                        <Button
+                          variant="premium"
+                          size="lg"
+                          onClick={startApp}
+                          disabled={isStarting || !currentApp}
+                          className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-8 py-3 rounded-xl shadow-lg"
+                        >
+                          <Play className="w-5 h-5 mr-2" />
+                          {isStarting ? 'Starting App...' : 'Start App'}
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <div key={iframeKey} className="h-full flex-1">
-                      <PreviewIframe
-                        appUrl={appUrl}
-                        appId={currentApp.id}
-                        onError={handleError}
-                        iframeKey={iframeKey}
-                      />
+                    <div key={iframeKey} className="h-full flex-1 relative">
+                      <div className="absolute inset-0 bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+                        {appUrl && (
+                          <div className="flex items-center justify-between p-3 bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200/50">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-sm font-medium text-green-700">Live Preview</span>
+                            </div>
+                            <div className="text-xs text-green-600 font-mono">
+                              {originalUrl || appUrl}
+                            </div>
+                          </div>
+                        )}
+                        <PreviewIframe
+                          appUrl={appUrl}
+                          appId={currentApp.id}
+                          onError={handleError}
+                          iframeKey={iframeKey}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Logs Sidebar - Show when logs are enabled */}
+                {/* Enhanced Logs Sidebar */}
                 {showLogs && (
-                  <div className="w-1/3 border-l bg-gray-50 flex flex-col">
-                    <div className="p-3 border-b bg-white">
-                      <h3 className="font-medium">Logs & Errors</h3>
-                      <div className="flex gap-2 mt-2">
+                  <div className="w-1/3 border-l border-gray-200/50 bg-gradient-to-b from-slate-900 via-gray-900 to-slate-800 flex flex-col text-white backdrop-blur-sm">
+                    <div className="p-4 border-b border-white/10 bg-gradient-to-r from-slate-800/50 to-gray-800/50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-green-500/20 to-blue-500/20 flex items-center justify-center">
+                          <Terminal className="w-3 h-3 text-green-400" />
+                        </div>
+                        <h3 className="font-semibold text-white">Console Logs</h3>
+                      </div>
+                      <div className="flex gap-2">
                         <button
                           onClick={() => setOutputs([])}
-                          className="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300"
+                          className="px-3 py-1.5 text-xs bg-red-500/20 text-red-300 rounded-lg hover:bg-red-500/30 transition-colors border border-red-500/30"
                         >
                           Clear Logs
                         </button>
                         <button
                           onClick={() => setErrors([])}
-                          className="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300"
+                          className="px-3 py-1.5 text-xs bg-yellow-500/20 text-yellow-300 rounded-lg hover:bg-yellow-500/30 transition-colors border border-yellow-500/30"
                         >
                           Clear Errors
                         </button>
                       </div>
                     </div>
                     
-                    <div className="flex-1 overflow-auto p-3 space-y-2">
+                    <div className="flex-1 overflow-auto p-4 space-y-2 bg-slate-900/50 backdrop-blur-sm">
                       {/* Errors */}
                       {errors.map((error, index) => (
-                        <div key={`error-${index}`} className="p-2 bg-red-50 border border-red-200 rounded">
-                          <div className="font-medium text-red-800 text-sm">{error.type}</div>
-                          <div className="text-red-700 text-xs mt-1">{error.payload.message}</div>
+                        <div key={`error-${index}`} className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg backdrop-blur-sm">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertTriangle className="w-4 h-4 text-red-400" />
+                            <div className="font-medium text-red-300 text-sm">{error.type}</div>
+                          </div>
+                          <div className="text-red-200 text-xs font-mono">{error.payload.message}</div>
                           {error.payload.file && (
-                            <div className="text-red-600 text-xs mt-1">File: {error.payload.file}</div>
+                            <div className="text-red-300 text-xs mt-2 flex items-center gap-1">
+                              <FileCode className="w-3 h-3" />
+                              {error.payload.file}
+                            </div>
                           )}
                           {error.payload.stack && (
-                            <pre className="text-red-600 text-xs mt-1 whitespace-pre-wrap overflow-auto max-h-20">
+                            <pre className="text-red-200/70 text-xs mt-2 whitespace-pre-wrap overflow-auto max-h-20 bg-red-900/20 p-2 rounded border border-red-500/20">
                               {error.payload.stack}
                             </pre>
                           )}
@@ -1037,56 +1142,71 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                       
                       {/* Outputs */}
                       {outputs.map((output, index) => (
-                        <div key={`output-${index}`} className={`p-2 rounded text-xs font-mono ${
-                          output.type === 'stderr' ? 'bg-yellow-50 text-yellow-800' : 'bg-gray-50 text-gray-700'
+                        <div key={`output-${index}`} className={`p-3 rounded-lg text-xs font-mono backdrop-blur-sm ${
+                          output.type === 'stderr' 
+                            ? 'bg-yellow-500/10 text-yellow-200 border border-yellow-500/30' 
+                            : 'bg-green-500/10 text-green-200 border border-green-500/30'
                         }`}>
-                          <div className="text-xs text-gray-500 mb-1">
-                            {new Date(output.timestamp).toLocaleTimeString()}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs text-gray-400">
+                              {new Date(output.timestamp).toLocaleTimeString()}
+                            </div>
+                            <div className={`w-2 h-2 rounded-full ${
+                              output.type === 'stderr' ? 'bg-yellow-400' : 'bg-green-400'
+                            }`}></div>
                           </div>
-                          <pre className="whitespace-pre-wrap">{output.message}</pre>
+                          <pre className="whitespace-pre-wrap text-xs leading-relaxed">{output.message}</pre>
                         </div>
                       ))}
                       
                       {outputs.length === 0 && errors.length === 0 && (
-                        <div className="text-gray-500 text-sm text-center mt-8">
-                          <div>No logs or errors yet</div>
-                          <div className="text-xs mt-2">
-                            App ID: {currentApp?.id} | Running: {isRunning ? 'Yes' : 'No'} | Starting: {isStarting ? 'Yes' : 'No'}
+                        <div className="text-gray-400 text-sm text-center mt-12">
+                          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-green-500/10 to-blue-500/10 flex items-center justify-center border border-white/10">
+                            <Terminal className="w-8 h-8 text-gray-500" />
                           </div>
-                          <div className="text-xs mt-1">
-                            ShowLogs: {showLogs ? 'Yes' : 'No'} | ActiveTab: {activeTab}
+                          <div className="font-medium mb-2">No logs or errors yet</div>
+                          <div className="text-xs text-gray-500 space-y-1">
+                            <div>App ID: {currentApp?.id}</div>
+                            <div>Status: {isRunning ? 'Running' : 'Stopped'} {isStarting ? '(Starting...)' : ''}</div>
                           </div>
                         </div>
                       )}
                     </div>
                     
-                    {/* Status Footer */}
-                    <div className="border-t bg-white p-3">
-                      <div className="space-y-2 text-xs text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                          <span className="font-medium">{isRunning ? 'Running' : 'Stopped'}</span>
+                    {/* Enhanced Status Footer */}
+                    <div className="border-t border-white/10 bg-gradient-to-r from-slate-800/80 to-gray-800/80 p-4 backdrop-blur-sm">
+                      <div className="space-y-3 text-xs text-gray-300">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></div>
+                            <span className="font-medium">{isRunning ? 'Running' : 'Stopped'}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${errors.length > 0 ? 'bg-red-400 animate-pulse' : 'bg-gray-500'}`}></div>
+                            <span>Errors: {errors.length}</span>
+                          </div>
                         </div>
                         
                         {originalUrl && (
-                          <div className="truncate">
-                            <span className="font-medium">Dev Server:</span> {originalUrl}
+                          <div className="truncate bg-slate-800/50 p-2 rounded border border-white/10">
+                            <span className="text-gray-400">Dev:</span> 
+                            <span className="text-blue-300 ml-2">{originalUrl}</span>
                           </div>
                         )}
                         
                         {appUrl && (
-                          <div className="truncate">
-                            <span className="font-medium">Proxy:</span> {appUrl}
+                          <div className="truncate bg-slate-800/50 p-2 rounded border border-white/10">
+                            <span className="text-gray-400">Proxy:</span> 
+                            <span className="text-green-300 ml-2">{appUrl}</span>
                           </div>
                         )}
                         
-                        <div className="flex items-center justify-between pt-1 border-t">
-                          <div>
-                            <span className="font-medium">Logs:</span> {outputs.length}
+                        <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                          <div className="text-gray-400">
+                            Logs: <span className="text-white">{outputs.length}</span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <div className={`w-2 h-2 rounded-full ${errors.length > 0 ? 'bg-red-500' : 'bg-gray-400'}`}></div>
-                            <span><span className="font-medium">Errors:</span> {errors.length}</span>
+                          <div className="text-gray-400">
+                            Tab: <span className="text-white capitalize">{activeTab}</span>
                           </div>
                         </div>
                       </div>
@@ -1100,21 +1220,31 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
       </Card>
       {selectionToolbarPos && selectionText && (
         <div
-          className="fixed z-[60] bg-white border shadow-lg rounded-md p-2 text-xs flex flex-col gap-2 w-60"
-          style={{ top: selectionToolbarPos.y, left: selectionToolbarPos.x - 120 }}
+          className="fixed z-[60] bg-gradient-to-r from-white via-white to-white/95 backdrop-blur-lg border border-white/20 shadow-2xl rounded-2xl p-4 text-xs flex flex-col gap-3 w-72"
+          style={{ top: selectionToolbarPos.y, left: selectionToolbarPos.x - 144 }}
         >
           <div className="flex justify-between items-center">
-            <span className="font-medium truncate max-w-[140px]">Code Actions</span>
-            <button onClick={clearSelectionState} className="text-gray-400 hover:text-gray-600">
-              <X className="w-3 h-3" />
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-prestige-primary to-prestige-secondary flex items-center justify-center">
+                <Wand2 className="w-3 h-3 text-white" />
+              </div>
+              <span className="font-semibold text-gray-800 truncate max-w-[160px]">Code Actions</span>
+            </div>
+            <button onClick={clearSelectionState} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100">
+              <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex gap-1 flex-wrap">
+          
+          <div className="flex gap-1.5 flex-wrap">
             {['edit','refactor','fix','explain'].map(action => (
               <button
                 key={action}
                 onClick={() => setSelectedAction(action)}
-                className={`px-2 py-1 rounded border text-[11px] capitalize flex items-center gap-1 hover:bg-gray-100 ${selectedAction === action ? 'bg-blue-100 border-blue-400' : 'border-gray-300'}`}
+                className={`px-3 py-2 rounded-xl border text-[11px] capitalize flex items-center gap-1.5 transition-all duration-200 font-medium ${
+                  selectedAction === action 
+                    ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white border-transparent shadow-lg scale-105' 
+                    : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700'
+                }`}
               >
                 {action === 'edit' && <FileCode className="w-3 h-3" />}
                 {action === 'refactor' && <Wand2 className="w-3 h-3" />}
@@ -1124,15 +1254,24 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
               </button>
             ))}
           </div>
+          
           {selectedAction && (
-            <div className="flex flex-col gap-1">
-              <div className="text-[10px] uppercase text-gray-500 tracking-wide">Send To</div>
-              <div className="flex gap-1">
-                <button onClick={() => handleDestination('chat')} className="flex-1 px-2 py-1 rounded bg-gray-800 text-white hover:bg-gray-700 text-[11px]">Chat</button>
-                <button onClick={() => handleDestination('aider')} className="flex-1 px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500 text-[11px]">Aider</button>
-                <button onClick={() => handleDestination('claude')} className="flex-1 px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-500 text-[11px]">Claude</button>
+            <div className="flex flex-col gap-2">
+              <div className="text-[10px] uppercase text-gray-400 tracking-wider font-semibold">Send To</div>
+              <div className="flex gap-1.5">
+                <button onClick={() => handleDestination('chat')} className="flex-1 px-3 py-2 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 text-white hover:from-gray-600 hover:to-gray-700 text-[11px] font-medium transition-all duration-200 shadow-lg">
+                  Chat
+                </button>
+                <button onClick={() => handleDestination('aider')} className="flex-1 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500 text-[11px] font-medium transition-all duration-200 shadow-lg">
+                  Aider
+                </button>
+                <button onClick={() => handleDestination('claude')} className="flex-1 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-400 hover:to-orange-500 text-[11px] font-medium transition-all duration-200 shadow-lg">
+                  Claude
+                </button>
               </div>
-              <div className="line-clamp-2 text-[10px] text-gray-500 mt-1">{selectionText.slice(0,140)}{selectionText.length>140?'…':''}</div>
+              <div className="line-clamp-2 text-[10px] text-gray-500 mt-1 p-2 bg-gray-50 rounded-lg border border-gray-100 font-mono">
+                {selectionText.slice(0,140)}{selectionText.length>140?'…':''}
+              </div>
             </div>
           )}
         </div>
