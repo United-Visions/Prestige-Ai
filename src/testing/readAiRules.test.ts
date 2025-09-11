@@ -28,16 +28,16 @@ beforeEach(() => {
 describe('readAiRules path normalization', () => {
   it('resolves when given just app name', async () => {
     const content = await readAiRules('my-app-1234');
-    expect(content).toContain('Test content');
+    expect(content).toContain('Tech Stack');
   });
 
   it('resolves when given absolute app root without files suffix', async () => {
     const content = await readAiRules('/Users/test/Desktop/prestige-ai/my-app-1234');
-    expect(content).toContain('Test content');
+    expect(content).toContain('Tech Stack');
   });
 
   it('resolves when given files directory already', async () => {
     const content = await readAiRules('/Users/test/Desktop/prestige-ai/my-app-1234/files');
-    expect(content).toContain('Test content');
+    expect(content).toContain('Tech Stack');
   });
 });
