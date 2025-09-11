@@ -1,16 +1,4 @@
 {
-<<<<<<< HEAD
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.60.0",
-    "@google/generative-ai": "^0.24.1",
-    "better-sqlite3": "^11.10.0",
-    "fs-extra": "^11.3.1"
-  },
-  "devDependencies": {
-    "@types/fs-extra": "^11.0.4"
-  },
-  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
-=======
   "name": "prestige-ai",
   "version": "0.1.4",
   "description": "A simplified Claude Code CLI integration inspired by CCdyad",
@@ -254,5 +242,4 @@
       ]
     }
   }
->>>>>>> cdd72a08380f10a24e3d4c9654798e84330b7548
 }
