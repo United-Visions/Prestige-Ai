@@ -207,8 +207,8 @@ class AIModelServiceV2 {
 
   private escapeDyadTags(text: string): string {
     // Escape dyad tags in reasoning content to avoid conflicts
-    // Using look-alike characters as dyad does
-    return text.replace(/<dyad/g, "＜dyad").replace(/<\/dyad/g, "＜/dyad");
+    // Use HTML entities for explicit escaping
+    return text.replace(/<dyad/g, "&lt;dyad").replace(/<\/dyad/g, "&lt;/dyad");
   }
 }
 
