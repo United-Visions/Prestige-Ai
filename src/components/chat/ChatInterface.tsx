@@ -126,43 +126,47 @@ export function ChatInterface() {
       } else if (!currentConversation) {
         const newConversation = await createConversation(currentApp.id, undefined, 'Conversation');
         conversationId = newConversation.id;
-        currentMessages = newConversation.messages || [];
         
-        if (!currentMessages.some(m => m.role === 'user' && m.content === content)) {
-          currentMessages.push({
-            id: Date.now(),
-            content,
-            role: 'user',
-            createdAt: new Date(),
-            conversationId: newConversation.id
-          });
-        }
+        // Add user message to the new conversation
+        await addMessage(conversationId, { 
+          content, 
+          role: 'user',
+          createdAt: new Date()
+        });
+        
+        // Get updated conversation with the user message
+        const appService = AdvancedAppManagementService.getInstance();
+        const updatedConversation = await appService.getConversation(conversationId);
+        currentMessages = updatedConversation?.messages || [];
+        
+        // Force UI update by refreshing the current conversation in store
+        const { setCurrentConversation } = useAppStore.getState();
+        setCurrentConversation(updatedConversation);
       } else {
+        // Add user message to database and immediately update UI
         await addMessage(currentConversation.id, { 
           content, 
           role: 'user',
           createdAt: new Date()
         });
         conversationId = currentConversation.id;
+        
+        // Get current messages and ensure they're properly ordered
         const appService = AdvancedAppManagementService.getInstance();
         const updatedConversation = await appService.getConversation(currentConversation.id);
         currentMessages = updatedConversation?.messages || [];
         
-        if (!currentMessages.some(m => m.role === 'user' && m.content === content)) {
-          currentMessages.push({
-            id: Date.now(),
-            content,
-            role: 'user',
-            createdAt: new Date(),
-            conversationId: currentConversation.id
-          });
-        }
+        // Force UI update by refreshing the current conversation in store
+        // This ensures the user message appears immediately
+        const { setCurrentConversation } = useAppStore.getState();
+        setCurrentConversation(updatedConversation);
       }
 
       const systemPrompt = await getSystemPrompt();
       let agentResponse: string;
 
-      if (supportsThinking(selectedModel.provider) || selectedModel.provider === 'anthropic' || selectedModel.provider === 'google') {
+      // Always use streaming for better UX, with enhanced thinking support
+      if (true) {
         setIsStreamingResponse(true);
         let fullResponse = '';
         let inThinkingBlock = false;
@@ -212,42 +216,43 @@ export function ChatInterface() {
               if (controller.signal.aborted) return;
 
               if (chunk.type === 'reasoning') {
-                if (!inThinkingBlock) {
+                // Handle reasoning/thinking content - dyad style
+                if (chunk.content === '<think>') {
                   inThinkingBlock = true;
                   thinkingContent = '';
+                } else if (chunk.content === '</think>') {
+                  inThinkingBlock = false;
+                } else if (inThinkingBlock) {
+                  thinkingContent += chunk.content;
                 }
-                thinkingContent += chunk.content;
                 
+                // Update streaming content with thinking blocks
                 setStreamingContent(prev => {
-                  const thinkRegex = /<think>.*?(?:<\/think>|$)/s;
-                  if (thinkRegex.test(prev)) {
-                    return prev.replace(thinkRegex, `<think>${thinkingContent}${inThinkingBlock ? '' : '</think>'}`);
-                  } else {
-                    const nonThinkingContent = prev.replace(thinkRegex, '');
-                    return `<think>${thinkingContent}${inThinkingBlock ? '' : '</think>'}\n\n${nonThinkingContent}`;
+                  // Remove any existing incomplete thinking block
+                  const withoutIncompleteThinking = prev.replace(/<think>(?!.*<\/think>).*$/s, '');
+                  
+                  if (inThinkingBlock && thinkingContent) {
+                    return withoutIncompleteThinking + `<think>${thinkingContent}</think>\n\n`;
+                  } else if (thinkingContent) {
+                    return withoutIncompleteThinking + `<think>${thinkingContent}</think>\n\n`;
                   }
+                  return withoutIncompleteThinking;
                 });
               } else if (chunk.type === 'text-delta') {
-                if (inThinkingBlock) {
-                  inThinkingBlock = false;
-                  setStreamingContent(prev => {
-                    const updatedPrev = prev.replace(
-                      /<think>.*?$/s, 
-                      `<think>${thinkingContent}</think>`
-                    );
-                    return updatedPrev + '\n\n' + chunk.content;
-                  });
-                } else {
-                  setStreamingContent(prev => {
-                    const hasOpenThinking = prev.includes('<think>') && !prev.includes('</think>');
-                    if (hasOpenThinking) {
-                      const closedThinking = prev.replace(/<think>([^<]*)$/, `<think>$1</think>`);
-                      return closedThinking + '\n\n' + chunk.content;
-                    }
-                    return prev + chunk.content;
-                  });
-                }
+                // Handle actual response content
                 fullResponse += chunk.content;
+                
+                setStreamingContent(prev => {
+                  // Ensure thinking blocks are preserved
+                  const thinkingBlocks = prev.match(/<think>.*?<\/think>/gs) || [];
+                  const nonThinkingContent = prev.replace(/<think>.*?<\/think>\s*/gs, '');
+                  
+                  const thinkingPrefix = thinkingBlocks.length > 0 
+                    ? thinkingBlocks.join('\n\n') + '\n\n'
+                    : '';
+                  
+                  return thinkingPrefix + nonThinkingContent + chunk.content;
+                });
               }
             },
             onComplete: (response: string) => {
@@ -263,7 +268,9 @@ export function ChatInterface() {
               setStreamingContent('');
             },
             settings: {
-              thinkingBudget: -1
+              thinkingBudget: -1,
+              temperature: 0.1,
+              maxOutputTokens: 8192
             }
           }
         );

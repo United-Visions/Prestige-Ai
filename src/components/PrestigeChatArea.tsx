@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChatMessage } from '@/components/chat/ChatMessage';
 import { EnhancedMarkdownRenderer } from '@/components/chat/EnhancedMarkdownRenderer';
+import { ThinkingDisplay } from '@/components/chat/ThinkingDisplay';
 import { 
   Crown,
   Sparkles,
@@ -124,8 +125,30 @@ export function PrestigeChatArea({
                   </div>
                   
                   {/* Content */}
-                  <div className="prose prose-sm max-w-none">
-                    <EnhancedMarkdownRenderer content={streamingContent} isStreaming={true} />
+                  <div className="prose prose-sm max-w-none space-y-4">
+                    {/* Extract thinking content */}
+                    {(() => {
+                      const thinkingMatch = streamingContent.match(/<think>([\s\S]*?)<\/think>/);
+                      const thinkingContent = thinkingMatch ? thinkingMatch[1] : '';
+                      const responseContent = streamingContent.replace(/<think>[\s\S]*?<\/think>\s*/, '');
+                      
+                      return (
+                        <>
+                          {thinkingContent && (
+                            <div className="mb-6">
+                              <div className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                Thinking Process
+                              </div>
+                              <ThinkingDisplay content={thinkingContent} isActive={true} />
+                            </div>
+                          )}
+                          {responseContent && (
+                            <EnhancedMarkdownRenderer content={responseContent} isStreaming={true} />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>

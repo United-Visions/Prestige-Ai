@@ -137,7 +137,7 @@ ipcMain.handle('db:get-conversation', async (_, conversationId) => {
     where: (conversations, { eq }) => eq(conversations.id, conversationId),
     with: {
       messages: {
-        orderBy: (messages, { desc }) => [desc(messages.createdAt)],
+        orderBy: (messages, { asc }) => [asc(messages.createdAt)],
       },
     },
   });

@@ -90,7 +90,8 @@ export function createModelClient(
     
     case "auto": {
       // For auto, try to find the first available API key
-      const providers = ['anthropic', 'google', 'openai'] as const;
+      // Prioritize Anthropic and OpenAI over Google due to reliability
+      const providers = ['anthropic', 'openai', 'google'] as const;
       
       for (const providerName of providers) {
         const apiKey = apiKeyStore.getApiKey(providerName);

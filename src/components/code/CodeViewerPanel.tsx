@@ -76,11 +76,18 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     
     if (currentApp?.id) {
       // Check if the new app is actually running
-      appService.isAppRunning(currentApp.id).then(running => {
+      appService.isAppRunning(currentApp.id).then(async (running) => {
         setIsRunning(running);
         
-        // If the app is running, it will set appUrl through the output handler
-        // No need to do anything special here
+        // Auto-start the app if not running - like @dyad's behavior
+        if (!running) {
+          console.log(`Auto-starting app on navigation: ${currentApp.name} (ID: ${currentApp.id})`);
+          await startApp();
+        } else {
+          // If app is already running, we still need to set up output handlers
+          // to capture any existing URLs/state
+          console.log(`App already running: ${currentApp.name} (ID: ${currentApp.id})`);
+        }
       });
     }
   }, [currentApp, appService]);
@@ -788,31 +795,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
             
             {activeTab === 'preview' && (
               <>
-                {!isRunning ? (
-                  <Button
-                    variant="premium"
-                    size="sm"
-                    onClick={startApp}
-                    disabled={isStarting || !currentApp}
-                    className="h-9 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg"
-                    title="Start App"
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    {isStarting ? 'Starting...' : 'Start App'}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="premium"
-                    size="sm"
-                    onClick={stopApp}
-                    className="h-9 px-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg"
-                    title="Stop App"
-                  >
-                    <Square className="w-4 h-4 mr-2" />
-                    Stop App
-                  </Button>
-                )}
-                
+                {/* Auto-start enabled - removed manual start/stop buttons */}
                 {isRunning && (
                   <>
                     <Button
@@ -1049,21 +1032,16 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                   ) : !isRunning ? (
                     <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-white text-gray-500">
                       <div className="text-center">
-                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
-                          <Play className="w-12 h-12 text-green-600" />
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+                          <Play className="w-12 h-12 text-blue-600" />
                         </div>
-                        <div className="text-xl font-semibold text-gray-700 mb-2">App Not Running</div>
-                        <div className="text-sm text-gray-500 mb-4">Click Start to run your app and see the preview</div>
-                        <Button
-                          variant="premium"
-                          size="lg"
-                          onClick={startApp}
-                          disabled={isStarting || !currentApp}
-                          className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-8 py-3 rounded-xl shadow-lg"
-                        >
-                          <Play className="w-5 h-5 mr-2" />
-                          {isStarting ? 'Starting App...' : 'Start App'}
-                        </Button>
+                        <div className="text-xl font-semibold text-gray-700 mb-2">Starting App...</div>
+                        <div className="text-sm text-gray-500">App will start automatically when you navigate to it</div>
+                        <div className="mt-4 flex items-center justify-center gap-2">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+                        </div>
                       </div>
                     </div>
                   ) : (

@@ -143,6 +143,18 @@ const useAppStore = create<AppState>()(
             currentAppConversations: conversations,
             currentConversation: conversations[0] || null 
           });
+
+          // Auto-start the new app - similar to @dyad's approach
+          try {
+            const isRunning = await appService.isAppRunning(fullApp.id);
+            if (!isRunning) {
+              console.log(`Auto-starting app: ${fullApp.name} (ID: ${fullApp.id})`);
+              // Note: The actual start will be handled by CodeViewerPanel's useEffect
+              // This just signals that auto-start should happen
+            }
+          } catch (error) {
+            console.error(`Error checking/starting app ${fullApp.id}:`, error);
+          }
         } else {
           set({ 
             currentApp: null, 

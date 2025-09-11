@@ -320,4 +320,4 @@ export function getProviderInfo(provider: ModelProvider) {
   return modelProviders.find(p => p.id === provider);
 }
 
-export const DEFAULT_MODEL = anthropicModels[0]; // Claude 4 Sonnet
+export const DEFAULT_MODEL = anthropicModels[0]; // Claude 4 Sonnet - More reliable than Gemini

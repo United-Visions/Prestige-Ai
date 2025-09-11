@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { ThinkingBlock } from "./ThinkingBlock";
+import { ThinkingDisplay } from "./ThinkingDisplay";
 
 interface EnhancedMarkdownRendererProps {
   content: string;
@@ -62,10 +62,13 @@ export const EnhancedMarkdownRenderer: React.FC<EnhancedMarkdownRendererProps> =
     <div className="space-y-4">
       {/* Thinking Block - Always shown separately first */}
       {thinkingContent && (
-        <ThinkingBlock
-          content={thinkingContent}
-          isStreaming={isStreaming}
-        />
+        <div className="mb-4">
+          <div className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+            Thinking Process
+          </div>
+          <ThinkingDisplay content={thinkingContent} isActive={isStreaming} />
+        </div>
       )}
       
       {/* Regular Content */}
