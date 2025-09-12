@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { spawn } from 'child_process'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
@@ -6,6 +6,8 @@ import { join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { eq } from 'drizzle-orm';
 import fs from 'fs';
+import { createServer } from 'http';
+import { URL } from 'url';
 import { initializeDatabase, closeDatabase, getDatabase } from './db';
 import * as schema from './db/schema';
 import { AdvancedAppManager } from './advancedAppManager';
@@ -447,4 +449,136 @@ function cleanupOldTempFiles(): void {
 // Clean up old temp files on startup
 app.whenReady().then(() => {
   cleanupOldTempFiles();
+});
+
+// OAuth callback server management
+let oauthServer: any = null;
+
+ipcMain.handle('oauth:start-server', async (_, port: number = 8080): Promise<boolean> => {
+  return new Promise((resolve) => {
+    try {
+      if (oauthServer) {
+        oauthServer.close();
+      }
+
+      oauthServer = createServer((req, res) => {
+        try {
+          const parsedUrl = new URL(req.url!, `http://localhost:${port}`);
+          const query = Object.fromEntries(parsedUrl.searchParams);
+
+          // Set CORS headers
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+          if (req.method === 'OPTIONS') {
+            res.writeHead(200);
+            res.end();
+            return;
+          }
+
+          let provider = '';
+          let callbackPath = '';
+
+          if (parsedUrl.pathname === '/auth/github/callback') {
+            provider = 'github';
+            callbackPath = '/auth/github/callback';
+          } else if (parsedUrl.pathname === '/auth/supabase/callback') {
+            provider = 'supabase';
+            callbackPath = '/auth/supabase/callback';
+          } else if (parsedUrl.pathname === '/auth/vercel/callback') {
+            provider = 'vercel';
+            callbackPath = '/auth/vercel/callback';
+          }
+
+          if (provider && callbackPath) {
+            // Send success page
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>Authentication Success</title>
+                <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                         text-align: center; padding: 50px; background: #f5f5f5; }
+                  .container { max-width: 400px; margin: 0 auto; padding: 40px; 
+                              background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                  .success { color: #22c55e; font-size: 48px; margin-bottom: 20px; }
+                  h1 { color: #1f2937; margin-bottom: 16px; }
+                  p { color: #6b7280; margin-bottom: 30px; }
+                  .provider { color: #3b82f6; font-weight: 600; text-transform: capitalize; }
+                </style>
+              </head>
+              <body>
+                <div class="container">
+                  <div class="success">✓</div>
+                  <h1>Authentication Successful</h1>
+                  <p>You have successfully connected your <span class="provider">${provider}</span> account to Prestige AI.</p>
+                  <p>You can now close this window and return to the application.</p>
+                </div>
+                <script>
+                  // Send message to main window if it's a popup
+                  if (window.opener) {
+                    window.opener.postMessage({
+                      type: 'OAUTH_CALLBACK',
+                      provider: '${provider}',
+                      code: '${query.code || ''}',
+                      state: '${query.state || ''}',
+                      error: '${query.error || ''}'
+                    }, '*');
+                    setTimeout(() => window.close(), 2000);
+                  }
+                </script>
+              </body>
+              </html>
+            `);
+
+            // Send callback data to renderer process
+            if (mainWindow) {
+              mainWindow.webContents.send('oauth:callback', {
+                provider,
+                code: query.code,
+                state: query.state,
+                error: query.error
+              });
+            }
+          } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+          }
+        } catch (error) {
+          console.error('OAuth callback error:', error);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Internal Server Error');
+        }
+      });
+
+      oauthServer.listen(port, 'localhost', () => {
+        console.log(`OAuth callback server started on port ${port}`);
+        resolve(true);
+      });
+
+      oauthServer.on('error', (error: any) => {
+        console.error('OAuth server error:', error);
+        resolve(false);
+      });
+
+    } catch (error) {
+      console.error('Failed to start OAuth server:', error);
+      resolve(false);
+    }
+  });
+});
+
+ipcMain.handle('oauth:stop-server', async (): Promise<void> => {
+  if (oauthServer) {
+    oauthServer.close();
+    oauthServer = null;
+    console.log('OAuth callback server stopped');
+  }
+});
+
+ipcMain.handle('oauth:open-url', async (_, url: string): Promise<void> => {
+  await shell.openExternal(url);
 });

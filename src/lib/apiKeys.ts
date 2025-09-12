@@ -106,11 +106,24 @@ export const useApiKeyStore = create<ApiKeyStore>()(
             [provider]: {
               ...state.apiKeyStatuses[provider],
               hasKey: !!key,
-              isValid: false, // Will be validated later
+              isValid: !!key, // Assume valid if key exists (basic validation)
               lastChecked: new Date(),
             },
           },
         }));
+        
+        // Update the app store's selected model if this was the first key or a better option
+        setTimeout(() => {
+          const recommendedModel = get().getRecommendedModel();
+          if (recommendedModel && typeof window !== 'undefined' && (window as any).updateSelectedModel) {
+            (window as any).updateSelectedModel(recommendedModel);
+          }
+          
+          // Trigger API key change event for UI updates
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('apiKeyChanged', { detail: { provider, hasKey: !!key } }));
+          }
+        }, 100);
       },
 
       removeApiKey: (provider) => {
@@ -126,6 +139,11 @@ export const useApiKeyStore = create<ApiKeyStore>()(
             },
           };
         });
+        
+        // Trigger API key change event for UI updates
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('apiKeyChanged', { detail: { provider, hasKey: false } }));
+        }
       },
 
       getApiKey: (provider) => {
@@ -223,7 +241,7 @@ export const useApiKeyStore = create<ApiKeyStore>()(
         const availableProviders = get().getAvailableProviders();
         
         // Priority order for recommendations
-        const providerPriority: ModelProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'auto'];
+        const providerPriority: ModelProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'ollama', 'lmstudio', 'auto'];
         
         for (const provider of providerPriority) {
           if (availableProviders.includes(provider)) {
@@ -232,6 +250,12 @@ export const useApiKeyStore = create<ApiKeyStore>()(
               return models[0];
             }
           }
+        }
+        
+        // If no keys are available, return a local model as default
+        const ollamaModels = getModelsByProvider('ollama');
+        if (ollamaModels.length > 0) {
+          return ollamaModels[0];
         }
         
         return null;
@@ -269,17 +293,18 @@ export function getModelAvailability(modelName: string, provider: ModelProvider)
   }
   
   // Check if we have either user key or environment key
-  const hasUserKey = status.hasKey && status.isValid;
+  const hasUserKey = status.hasKey;
   const hasEnvKey = status.hasEnvKey;
+  const effectiveKey = store.getEffectiveApiKey(provider);
   
-  if (!hasUserKey && !hasEnvKey) {
+  if (!hasUserKey && !hasEnvKey && !effectiveKey) {
     return { 
       status: 'api_key_required', 
       message: `${provider} API key required` 
     };
   }
   
-  if (hasUserKey || hasEnvKey) {
+  if (hasUserKey || hasEnvKey || effectiveKey) {
     return { status: 'ready' };
   }
   

@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChatMessage } from '@/components/chat/ChatMessage';
-import { EnhancedMarkdownRenderer } from '@/components/chat/EnhancedMarkdownRenderer';
+import { PrestigeMarkdownRenderer } from '@/components/chat/PrestigeMarkdownRenderer';
 import { ThinkingDisplay } from '@/components/chat/ThinkingDisplay';
 import { 
   Crown,
@@ -144,7 +144,7 @@ export function PrestigeChatArea({
                             </div>
                           )}
                           {responseContent && (
-                            <EnhancedMarkdownRenderer content={responseContent} isStreaming={true} />
+                            <PrestigeMarkdownRenderer content={responseContent} isStreaming={true} />
                           )}
                         </>
                       );

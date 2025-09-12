@@ -32,6 +32,7 @@ function parsePrestigeTags(response: string): { operations: Operation[], chatSum
   let chatSummary = '';
   let chatContent = response;
 
+  // Remove thinking tags but preserve integration tags for UI display
   const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
   chatContent = chatContent.replace(thinkRegex, '').trim();
 
@@ -70,6 +71,9 @@ function parsePrestigeTags(response: string): { operations: Operation[], chatSum
     operations.push({ type: 'command', command: match[1] as 'rebuild' | 'restart' | 'refresh' });
     chatContent = chatContent.replace(match[0], '').trim();
   }
+
+  // NOTE: prestige-add-integration tags are intentionally NOT removed from chatContent
+  // so they can be displayed as interactive UI components to the user
 
   const summaryRegex = /<prestige-chat-summary>([\s\S]*?)<\/prestige-chat-summary>/;
   const summaryMatch = response.match(summaryRegex);

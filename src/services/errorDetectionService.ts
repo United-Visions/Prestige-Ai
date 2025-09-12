@@ -80,6 +80,53 @@ export class ErrorDetectionService {
             message: match[4].trim()
           });
         }
+
+        // Parse Vite import/resolve errors
+        const viteImportErrorRegex = /Failed to resolve import "([^"]+)" from "([^"]+)"/g;
+        while ((match = viteImportErrorRegex.exec(output.message)) !== null) {
+          const importName = match[1];
+          const fileName = match[2];
+          
+          // Look for file location info
+          const fileLocationMatch = output.message.match(new RegExp(`File: [^:]+${fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(\\d+):(\\d+)`));
+          const line = fileLocationMatch ? parseInt(fileLocationMatch[1]) : 1;
+          const column = fileLocationMatch ? parseInt(fileLocationMatch[2]) : 1;
+          
+          buildErrors.push({
+            file: fileName,
+            line,
+            column,
+            message: `Failed to resolve import "${importName}". Package may not be installed.`
+          });
+        }
+
+        // Parse general Vite build errors with file locations
+        const viteGeneralErrorRegex = /File: ([^:]+):(\d+):(\d+)/g;
+        while ((match = viteGeneralErrorRegex.exec(output.message)) !== null) {
+          // Extract error message from the output
+          const lines = output.message.split('\n');
+          let errorMessage = 'Build error';
+          for (const line of lines) {
+            if (line.includes('error') && !line.includes('File:') && !line.includes('Plugin:')) {
+              errorMessage = line.replace(/^\s*\d+\s*\|\s*/, '').trim();
+              break;
+            }
+          }
+          
+          // Check if we already added this error from import parsing
+          const isDuplicate = buildErrors.some(existing => 
+            existing.file === match[1] && existing.line === parseInt(match[2]) && existing.column === parseInt(match[3])
+          );
+          
+          if (!isDuplicate) {
+            buildErrors.push({
+              file: match[1],
+              line: parseInt(match[2]),
+              column: parseInt(match[3]),
+              message: errorMessage
+            });
+          }
+        }
       }
     }
 

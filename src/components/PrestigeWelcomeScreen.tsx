@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TemplateSelector } from '@/components/TemplateSelector';
 import { DEFAULT_TEMPLATE_ID, getTemplateById } from '@/templates';
+import { ToolsMenuDialog } from '@/components/dialogs/ToolsMenuDialog';
+import { tokenStorageService } from '@/services/tokenStorageService';
 import { 
   Crown,
   Sparkles, 
@@ -14,7 +17,13 @@ import {
   Gem,
   Star,
   ArrowRight,
-  ChevronDown
+  ChevronDown,
+  Github,
+  Database,
+  Globe,
+  CheckCircle,
+  Settings,
+  Users
 } from 'lucide-react';
 
 interface PrestigeWelcomeScreenProps {
@@ -30,6 +39,26 @@ export function PrestigeWelcomeScreen({
   onQuickPrompt,
   onCreateWithTemplate
 }: PrestigeWelcomeScreenProps) {
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState({
+    github: false,
+    supabase: false,
+    vercel: false
+  });
+
+  // Check connection status on mount
+  useEffect(() => {
+    checkConnectionStatus();
+  }, []);
+
+  const checkConnectionStatus = async () => {
+    try {
+      const status = await tokenStorageService.getConnectionStatus();
+      setConnectionStatus(status);
+    } catch (error) {
+      console.error('Failed to check connection status:', error);
+    }
+  };
   
   const quickPrompts = [
     { 
@@ -106,6 +135,179 @@ export function PrestigeWelcomeScreen({
               💎 Premium Quality
             </Badge>
           </div>
+        </div>
+
+        {/* Account Connections Section */}
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="text-2xl font-semibold mb-2">Connect Your Accounts</h2>
+            <p className="text-muted-foreground">
+              Connect your development accounts for seamless workflow automation
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+            {/* GitHub Connection */}
+            <Card className={`cursor-pointer transition-all duration-300 ${
+              connectionStatus.github 
+                ? 'border-green-300 bg-green-50 hover:bg-green-100' 
+                : 'hover:shadow-lg border-gray-300 bg-gray-50 hover:bg-gray-100'
+            }`}
+            onClick={() => setToolsMenuOpen(true)}
+            >
+              <CardContent className="p-4">
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                    connectionStatus.github 
+                      ? 'bg-green-100' 
+                      : 'bg-gray-200'
+                  }`}>
+                    <Github className={`w-6 h-6 ${
+                      connectionStatus.github ? 'text-green-600' : 'text-gray-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm">GitHub</h3>
+                    <p className="text-xs text-muted-foreground">Version Control</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {connectionStatus.github ? (
+                      <>
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                        <span className="text-xs text-green-600 font-medium">Connected</span>
+                      </>
+                    ) : (
+                      <>
+                        <Settings className="w-3 h-3 text-gray-500" />
+                        <span className="text-xs text-gray-500">Connect</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Supabase Connection */}
+            <Card className={`cursor-pointer transition-all duration-300 ${
+              connectionStatus.supabase 
+                ? 'border-green-300 bg-green-50 hover:bg-green-100' 
+                : 'hover:shadow-lg border-gray-300 bg-gray-50 hover:bg-gray-100'
+            }`}
+            onClick={() => setToolsMenuOpen(true)}
+            >
+              <CardContent className="p-4">
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                    connectionStatus.supabase 
+                      ? 'bg-green-100' 
+                      : 'bg-gray-200'
+                  }`}>
+                    <Database className={`w-6 h-6 ${
+                      connectionStatus.supabase ? 'text-green-600' : 'text-gray-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm">Supabase</h3>
+                    <p className="text-xs text-muted-foreground">Backend Services</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {connectionStatus.supabase ? (
+                      <>
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                        <span className="text-xs text-green-600 font-medium">Connected</span>
+                      </>
+                    ) : (
+                      <>
+                        <Settings className="w-3 h-3 text-gray-500" />
+                        <span className="text-xs text-gray-500">Connect</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Vercel Connection */}
+            <Card className={`cursor-pointer transition-all duration-300 ${
+              connectionStatus.vercel 
+                ? 'border-green-300 bg-green-50 hover:bg-green-100' 
+                : 'hover:shadow-lg border-gray-300 bg-gray-50 hover:bg-gray-100'
+            }`}
+            onClick={() => setToolsMenuOpen(true)}
+            >
+              <CardContent className="p-4">
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                    connectionStatus.vercel 
+                      ? 'bg-green-100' 
+                      : 'bg-gray-200'
+                  }`}>
+                    <Globe className={`w-6 h-6 ${
+                      connectionStatus.vercel ? 'text-green-600' : 'text-gray-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm">Vercel</h3>
+                    <p className="text-xs text-muted-foreground">Deployment</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {connectionStatus.vercel ? (
+                      <>
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                        <span className="text-xs text-green-600 font-medium">Connected</span>
+                      </>
+                    ) : (
+                      <>
+                        <Settings className="w-3 h-3 text-gray-500" />
+                        <span className="text-xs text-gray-500">Connect</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Connection Status Alert */}
+          {connectionStatus.github || connectionStatus.supabase || connectionStatus.vercel ? (
+            <Alert className="border-green-300 bg-green-50 max-w-2xl mx-auto">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">
+                    {[connectionStatus.github, connectionStatus.supabase, connectionStatus.vercel].filter(Boolean).length} account(s) connected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setToolsMenuOpen(true)}
+                    className="border-green-300 text-green-700 hover:bg-green-100"
+                  >
+                    <Settings className="w-3 h-3 mr-1" />
+                    Manage
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert className="border-blue-200 bg-blue-50 max-w-2xl mx-auto">
+              <Users className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-800">
+                <div className="flex items-center justify-between">
+                  <span>Connect your development accounts to unlock full workflow automation</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setToolsMenuOpen(true)}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                  >
+                    <Settings className="w-3 h-3 mr-1" />
+                    Setup
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
 
         {/* Template Selection */}
@@ -216,6 +418,13 @@ export function PrestigeWelcomeScreen({
           </div>
         </div>
       </div>
+
+      {/* Tools Menu Dialog */}
+      <ToolsMenuDialog
+        isOpen={toolsMenuOpen}
+        onClose={() => setToolsMenuOpen(false)}
+        currentApp={null}
+      />
     </div>
   );
 }

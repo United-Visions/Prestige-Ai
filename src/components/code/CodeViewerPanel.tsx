@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Send, Folder, Edit3, Save, XCircle, Wand2, FileCode, Wrench, MessageCircle } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Folder, Edit3, Save, XCircle, Wand2, FileCode, Wrench, MessageCircle } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
 import { FileTreeView } from '@/components/project/FileTreeView';
@@ -11,6 +11,9 @@ import { AppError, AppOutput } from '@/types/appTypes';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { useAiderStore } from '@/stores/aiderStore';
 import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetectionService';
+import { ErrorFixDialog } from '@/components/ErrorFixDialog';
+import { useApiKeyStore, getModelAvailability } from '@/lib/apiKeys';
+import { useModelPreferencesStore } from '@/stores/modelPreferencesStore';
 
 interface CodeViewerPanelProps {
   className?: string;
@@ -27,7 +30,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     setShowFileTree
   } = useCodeViewerStore();
 
-  const { currentApp, selectedModel } = useAppStore();
+  const { currentApp, selectedModel, currentConversation } = useAppStore();
 
   const [isExpanded, setIsExpanded] = useState(false);
   const activeTab = storeActiveTab;
@@ -43,6 +46,8 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
   const [iframeKey, setIframeKey] = useState(0);
   const [errorReport, setErrorReport] = useState<ErrorReport | null>(null);
   const [isFixingErrors, setIsFixingErrors] = useState(false);
+  const [autoFixTimeout, setAutoFixTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
@@ -50,9 +55,53 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
   const [selectionToolbarPos, setSelectionToolbarPos] = useState<{ x: number; y: number } | null>(null);
   const [selectedAction, setSelectedAction] = useState<string | null>(null);
   const aiderStore = useAiderStore();
+  const { getRecommendedModel, getAvailableProviders } = useApiKeyStore();
+  const { getModelForContext } = useModelPreferencesStore();
 
   const appService = AdvancedAppManagementService.getInstance();
   const errorService = ErrorDetectionService.getInstance();
+
+  // Check if we have valid API keys for the current selected model
+  const hasValidApiKey = () => {
+    if (!selectedModel) return false;
+    
+    // Use the same logic as Enhanced Model Picker
+    const availability = getModelAvailability(selectedModel.name, selectedModel.provider);
+    
+    console.log('🔑 Checking API key for model:', selectedModel.name, 'provider:', selectedModel.provider, 'availability:', availability);
+    
+    return availability.status === 'ready';
+  };
+
+  const sendErrorsToChat = async () => {
+    if (!errorReport?.hasErrors) return;
+    
+    const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
+    console.log('📨 Sending errors to chat:', errorPrompt);
+    
+    // Add the error fix prompt directly to the current conversation
+    if (currentApp?.id && currentConversation?.id) {
+      try {
+        await appService.addMessageToConversation(currentConversation.id, 'user', errorPrompt);
+        console.log('✅ Error prompt added to conversation');
+        
+        // Trigger the chat interface to show the new message
+        const event = new CustomEvent('newMessageAdded', { detail: { conversationId: currentConversation.id } });
+        window.dispatchEvent(event);
+      } catch (error) {
+        console.error('❌ Error adding message to conversation:', error);
+      }
+    }
+    
+    setShowErrorDialog(false);
+  };
+
+  const openApiKeyDialog = () => {
+    // This will be connected to the parent component's API key dialog
+    const event = new CustomEvent('openApiKeyDialog');
+    window.dispatchEvent(event);
+    setShowErrorDialog(false);
+  };
 
   useEffect(() => {
     // Reset expansion state when a new file is selected
@@ -60,6 +109,15 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
       setIsExpanded(false);
     }
   }, [selectedFile]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoFixTimeout) {
+        clearTimeout(autoFixTimeout);
+      }
+    };
+  }, [autoFixTimeout]);
   
   // Debug log to track file tree state
   useEffect(() => {
@@ -103,7 +161,14 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
       if (currentApp?.id && output.type === 'stderr') {
         setTimeout(() => {
           const report = errorService.createErrorReport(limitedOutputs, errors);
+          console.log('📊 Error report created:', report, 'from outputs:', limitedOutputs.length, 'and errors:', errors.length);
           setErrorReport(report);
+          
+          // Show error dialog when errors are detected
+          if (report.hasErrors && !isFixingErrors && !showErrorDialog) {
+            console.log('🔥 Error detected, showing dialog:', report);
+            setShowErrorDialog(true);
+          }
         }, 1000); // Debounce error detection for outputs
       }
       
@@ -133,7 +198,14 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
       if (currentApp?.id) {
         setTimeout(() => {
           const report = errorService.createErrorReport(outputs, limitedErrors);
+          console.log('📊 Error report created from runtime errors:', report, 'from outputs:', outputs.length, 'and runtime errors:', limitedErrors.length);
           setErrorReport(report);
+          
+          // Show error dialog when errors are detected
+          if (report.hasErrors && !isFixingErrors && !showErrorDialog) {
+            console.log('🔥 Error detected, showing dialog:', report);
+            setShowErrorDialog(true);
+          }
         }, 500); // Debounce error detection
       }
       
@@ -372,9 +444,13 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
             conversationId: activeConversation.id
           }];
           
-          // Generate response using the selected model
+          // Use the preferred fix model or fall back to selected model
+          const preferredFixModel = getModelForContext('fix');
+          const modelToUse = preferredFixModel || selectedModel;
+          
+          // Generate response using the fix model
           const response = await aiModelService.generateResponse(
-            selectedModel,
+            modelToUse,
             systemPrompt,
             conversationMessages
           );
@@ -390,7 +466,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
           
           // Clear error report after successful fix attempt
           setErrorReport(null);
-          showToast(`Attempted to fix errors using ${selectedModel.name}. Check the logs for results.`, 'info');
+          showToast(`Attempted to fix errors using ${modelToUse.name}. Check the logs for results.`, 'info');
         } else {
           showToast('No active conversation found for this app', 'error');
         }
@@ -403,21 +479,6 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     }
   };
 
-  const sendErrorsToTerminal = () => {
-    if (!errorReport?.hasErrors) {
-      showToast('No errors to send', 'info');
-      return;
-    }
-
-    const errorPrompt = errorService.generateErrorFixPrompt(errorReport);
-    
-    // Store error prompt globally so terminal can access it
-    // Store error prompt for terminal use (if needed)
-    (window as any).prestigeErrorPrompt = errorPrompt;
-    
-    // Notify user
-    showToast(`Prepared error summary for terminal. Switch to terminal mode and type "fix-errors".`, 'success');
-  };
 
   if (!isVisible) {
     return null;
@@ -838,16 +899,6 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                       {isFixingErrors ? 'Fixing...' : `Auto-Fix (${errorReport.buildErrors.length + errorReport.runtimeErrors.length})`}
                     </Button>
                     
-                    <Button
-                      variant="premium"
-                      size="sm"
-                      onClick={sendErrorsToTerminal}
-                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white"
-                      title="Send error summary to terminal for Claude Code CLI"
-                    >
-                      <Send className="w-4 h-4 mr-2" />
-                      Send to Terminal
-                    </Button>
                   </>
                 )}
                 
@@ -1062,7 +1113,9 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                           appUrl={appUrl}
                           appId={currentApp.id}
                           onError={handleError}
+                          onFixErrors={() => autoFixErrors()}
                           iframeKey={iframeKey}
+                          hasErrors={errorReport?.hasErrors}
                         />
                       </div>
                     </div>
@@ -1254,6 +1307,22 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
           )}
         </div>
       )}
+
+      {/* Error Fix Dialog */}
+      <ErrorFixDialog
+        isOpen={showErrorDialog}
+        onClose={() => setShowErrorDialog(false)}
+        errorReport={errorReport}
+        onSendToChat={sendErrorsToChat}
+        onAutoFix={() => {
+          setShowErrorDialog(false);
+          autoFixErrors();
+        }}
+        onOpenApiKeys={openApiKeyDialog}
+        hasValidApiKey={hasValidApiKey()}
+        isFixing={isFixingErrors}
+        currentAppName={currentApp?.name}
+      />
     </div>
   );
 }

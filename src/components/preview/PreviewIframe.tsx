@@ -6,8 +6,10 @@ interface PreviewIframeProps {
   appId: number | null;
   onError?: (error: AppError) => void;
   onNavigationChange?: (url: string) => void;
+  onFixErrors?: () => void;
   iframeKey?: string | number;
   className?: string;
+  hasErrors?: boolean;
 }
 
 export const PreviewIframe: React.FC<PreviewIframeProps> = ({
@@ -15,8 +17,10 @@ export const PreviewIframe: React.FC<PreviewIframeProps> = ({
   appId,
   onError,
   onNavigationChange,
+  onFixErrors,
   iframeKey,
-  className = "w-full h-full border-0"
+  className = "w-full h-full border-0",
+  hasErrors = false
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -216,6 +220,22 @@ export const PreviewIframe: React.FC<PreviewIframeProps> = ({
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
           key={iframeKey}
         />
+        
+        {/* Error Fix Button Overlay */}
+        {hasErrors && onFixErrors && (
+          <div className="absolute top-4 right-4 z-10">
+            <button
+              onClick={onFixErrors}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg shadow-lg transition-all duration-200 border border-red-400 hover:border-red-500 animate-pulse hover:animate-none"
+              title="Fix errors automatically"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">Fix Errors</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

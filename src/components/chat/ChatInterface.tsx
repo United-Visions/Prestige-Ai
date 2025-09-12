@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApiKeyDialog } from '@/components/ApiKeyDialog';
+import { ModelPreferencesDialog } from '@/components/ModelPreferencesDialog';
 import { CodeViewerPanel } from '@/components/code/CodeViewerPanel';
 import useAppStore from '@/stores/appStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
@@ -13,10 +14,10 @@ import { PrestigeBrandHeader } from '@/components/PrestigeBrandHeader';
 import { PrestigeWelcomeScreen } from '@/components/PrestigeWelcomeScreen';
 import { PrestigeChatArea } from '@/components/PrestigeChatArea';
 import { PrestigeChatInput } from '@/components/PrestigeChatInput';
-import { constructSystemPrompt, readAiRules } from '@/prompts/system_prompt';
+import { constructSystemPromptAsync, readAiRules } from '@/prompts/system_prompt';
 import { aiModelServiceV2 as aiModelService, StreamChunk } from '@/services/aiModelService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
-import { EnhancedMarkdownRenderer } from './EnhancedMarkdownRenderer';
+import { PrestigeMarkdownRenderer } from './PrestigeMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
 import type { Message } from '@/types';
 
@@ -41,6 +42,7 @@ export function ChatInterface() {
   const [input, setInput] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_TEMPLATE_ID);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+  const [modelPreferencesDialogOpen, setModelPreferencesDialogOpen] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
@@ -49,8 +51,25 @@ export function ChatInterface() {
     loadApps();
   }, [loadApps]);
 
+  // Listen for API key dialog events from CodeViewerPanel
+  useEffect(() => {
+    const handleOpenApiKeyDialog = () => {
+      setApiKeyDialogOpen(true);
+    };
+
+    window.addEventListener('openApiKeyDialog', handleOpenApiKeyDialog);
+    
+    // Expose model update function for API key store
+    (window as any).updateSelectedModel = setSelectedModel;
+    
+    return () => {
+      window.removeEventListener('openApiKeyDialog', handleOpenApiKeyDialog);
+      delete (window as any).updateSelectedModel;
+    };
+  }, [setSelectedModel]);
+
   const getSystemPrompt = useCallback(async () => {
-    if (!currentApp) return constructSystemPrompt({ aiRules: undefined });
+    if (!currentApp) return constructSystemPromptAsync({ aiRules: undefined });
     
     const aiRules = await readAiRules(currentApp.path);
     
@@ -59,9 +78,10 @@ export function ChatInterface() {
       fileStructure = generateFileStructure(currentApp.files);
     }
     
-    return constructSystemPrompt({ 
+    return constructSystemPromptAsync({ 
       aiRules, 
-      fileStructure 
+      fileStructure,
+      appPath: currentApp.path
     });
   }, [currentApp]);
 
@@ -347,6 +367,7 @@ export function ChatInterface() {
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
           onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
+          onModelPreferencesOpen={() => setModelPreferencesDialogOpen(true)}
           onPreviewApp={handlePreviewApp}
         />
 
@@ -401,6 +422,16 @@ export function ChatInterface() {
       <ApiKeyDialog 
         isOpen={apiKeyDialogOpen} 
         onClose={() => setApiKeyDialogOpen(false)} 
+      />
+
+      {/* Model Preferences Dialog */}
+      <ModelPreferencesDialog 
+        isOpen={modelPreferencesDialogOpen} 
+        onClose={() => setModelPreferencesDialogOpen(false)}
+        onApiKeyDialogOpen={() => {
+          setModelPreferencesDialogOpen(false);
+          setApiKeyDialogOpen(true);
+        }}
       />
 
       {/* Code Viewer Panel */}

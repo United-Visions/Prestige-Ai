@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { tokenStorageService } from './tokenStorageService';
+import { oauthCallbackService } from './oauthCallbackService';
 
 // GitHub schemas
 export const GitHubUserSchema = z.object({
@@ -41,6 +43,7 @@ let currentFlowState: DeviceFlowState | null = null;
 export class GitHubService {
   private static instance: GitHubService;
   private accessToken: string | null = null;
+  private user: GitHubUser | null = null;
 
   static getInstance(): GitHubService {
     if (!GitHubService.instance) {
@@ -49,15 +52,69 @@ export class GitHubService {
     return GitHubService.instance;
   }
 
-  setAccessToken(token: string) {
+  private constructor() {
+    // Load stored tokens on initialization
+    this.initializeFromStorage();
+  }
+
+  private async initializeFromStorage(): Promise<void> {
+    try {
+      const storedTokens = await tokenStorageService.getTokens('github');
+      if (storedTokens && storedTokens.accessToken) {
+        this.accessToken = storedTokens.accessToken;
+        if (storedTokens.metadata?.user) {
+          this.user = storedTokens.metadata.user;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load GitHub tokens from storage:', error);
+    }
+  }
+
+  async setAccessToken(token: string, user?: GitHubUser) {
     this.accessToken = token;
+    if (user) {
+      this.user = user;
+    }
+    
+    // Store tokens securely
+    try {
+      await tokenStorageService.storeTokens('github', {
+        accessToken: token,
+        metadata: { user: this.user }
+      });
+    } catch (error) {
+      console.warn('Failed to store GitHub tokens:', error);
+    }
   }
 
   getAccessToken(): string | null {
     return this.accessToken;
   }
 
-  isAuthenticated(): boolean {
+  async isAuthenticated(): Promise<boolean> {
+    if (!this.accessToken) {
+      // Try to load from storage if not in memory
+      await this.initializeFromStorage();
+    }
+    
+    // Check if tokens are valid
+    if (this.accessToken) {
+      const isValid = await tokenStorageService.areTokensValid('github');
+      if (!isValid) {
+        // Clear invalid tokens
+        this.accessToken = null;
+        this.user = null;
+        await tokenStorageService.removeTokens('github');
+        return false;
+      }
+    }
+    
+    return !!this.accessToken;
+  }
+
+  // Synchronous version for backward compatibility
+  isAuthenticatedSync(): boolean {
     return !!this.accessToken;
   }
 
@@ -142,7 +199,52 @@ export class GitHubService {
           const data = await response.json();
 
           if (response.ok && data.access_token) {
-            this.setAccessToken(data.access_token);
+            // Get user info before resolving
+            try {
+              const userResponse = await fetch(`${GITHUB_API_BASE}/user`, {
+                headers: {
+                  Authorization: `Bearer ${data.access_token}`,
+                  Accept: "application/vnd.github.v3+json",
+                },
+              });
+
+              if (userResponse.ok) {
+                const userData = await userResponse.json();
+                
+                // Get primary email
+                const emailResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+                  headers: {
+                    Authorization: `Bearer ${data.access_token}`,
+                    Accept: "application/vnd.github.v3+json",
+                  },
+                });
+
+                let primaryEmail = userData.email;
+                if (emailResponse.ok) {
+                  const emails = await emailResponse.json();
+                  const primaryEmailObj = emails.find((email: any) => email.primary);
+                  if (primaryEmailObj) {
+                    primaryEmail = primaryEmailObj.email;
+                  }
+                }
+
+                const user: GitHubUser = {
+                  email: primaryEmail || '',
+                  username: userData.login,
+                  name: userData.name,
+                };
+
+                await this.setAccessToken(data.access_token, user);
+                this.stopPolling();
+                resolve(data.access_token);
+                return;
+              }
+            } catch (userError) {
+              console.warn('Failed to get user info:', userError);
+            }
+
+            // Fallback: set token without user info
+            await this.setAccessToken(data.access_token);
             this.stopPolling();
             resolve(data.access_token);
             return;
@@ -202,8 +304,13 @@ export class GitHubService {
    * Get authenticated user information
    */
   async getUser(): Promise<GitHubUser | null> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       return null;
+    }
+
+    // Return cached user if available
+    if (this.user) {
+      return this.user;
     }
 
     try {
@@ -237,11 +344,17 @@ export class GitHubService {
         }
       }
 
-      return {
+      const user: GitHubUser = {
         email: primaryEmail || '',
         username: userData.login,
         name: userData.name,
       };
+
+      // Cache user info and update storage
+      this.user = user;
+      await tokenStorageService.updateMetadata('github', { user });
+
+      return user;
     } catch (error) {
       console.error("Failed to get GitHub user:", error);
       return null;
@@ -252,7 +365,7 @@ export class GitHubService {
    * Get user repositories
    */
   async getRepositories(): Promise<GitHubRepo[]> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error("Not authenticated");
     }
 
@@ -386,9 +499,48 @@ export class GitHubService {
   /**
    * Logout and clear access token
    */
-  logout() {
+  async logout() {
     this.accessToken = null;
+    this.user = null;
     this.stopPolling();
+    
+    // Clear stored tokens
+    try {
+      await tokenStorageService.removeTokens('github');
+    } catch (error) {
+      console.warn('Failed to clear GitHub tokens from storage:', error);
+    }
+  }
+
+  /**
+   * Add OAuth flow authentication method
+   */
+  async authenticateWithOAuth(): Promise<GitHubUser> {
+    const state = oauthCallbackService.generateState();
+    const clientId = process.env.GITHUB_CLIENT_ID || "Ov23liWV2HdC0RBLecWx";
+    
+    const authUrl = `https://github.com/login/oauth/authorize?` +
+      `client_id=${clientId}&` +
+      `redirect_uri=${encodeURIComponent('http://localhost:8080/auth/github/callback')}&` +
+      `scope=${encodeURIComponent(GITHUB_SCOPES)}&` +
+      `state=${state}&` +
+      `allow_signup=true`;
+
+    // Open popup or redirect
+    const popup = oauthCallbackService.openAuthPopup(authUrl, 'github');
+    
+    // Wait for callback
+    const result = await oauthCallbackService.waitForCallback('github', state);
+    
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+
+    if (!result.success) {
+      throw new Error(result.error || 'GitHub authentication failed');
+    }
+
+    return result.user;
   }
 }
 

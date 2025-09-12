@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EnhancedModelPicker } from '@/components/EnhancedModelPicker';
 import { useTheme } from '@/components/theme-provider';
+import { ToolsMenuDialog } from '@/components/dialogs/ToolsMenuDialog';
 import { 
   Sparkles, 
   Play, 
@@ -11,7 +12,8 @@ import {
   Settings, 
   Zap,
   Crown,
-  Gem
+  Gem,
+  Wrench
 } from 'lucide-react';
 
 interface PrestigeBrandHeaderProps {
@@ -19,6 +21,7 @@ interface PrestigeBrandHeaderProps {
   selectedModel: any;
   setSelectedModel: (model: any) => void;
   onApiKeyDialogOpen: () => void;
+  onModelPreferencesOpen?: () => void;
   onPreviewApp?: () => void;
 }
 
@@ -26,10 +29,12 @@ export function PrestigeBrandHeader({
   currentApp, 
   selectedModel, 
   setSelectedModel, 
-  onApiKeyDialogOpen, 
+  onApiKeyDialogOpen,
+  onModelPreferencesOpen,
   onPreviewApp 
 }: PrestigeBrandHeaderProps) {
   const { theme, setTheme } = useTheme();
+  const [toolsMenuOpen, setToolsMenuOpen] = React.useState(false);
 
   return (
     <div className="border-b bg-gradient-to-r from-background via-background to-background/95 backdrop-blur-xl">
@@ -83,6 +88,20 @@ export function PrestigeBrandHeader({
               onApiKeyDialogOpen={onApiKeyDialogOpen}
             />
             
+            {/* Model Preferences Button */}
+            {onModelPreferencesOpen && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onModelPreferencesOpen}
+                className="h-9 px-3"
+                title="Model Preferences"
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Preferences</span>
+              </Button>
+            )}
+            
             {/* Theme Toggle */}
             <Button
               variant="outline"
@@ -109,6 +128,17 @@ export function PrestigeBrandHeader({
                 Preview
               </Button>
             )}
+            
+            {/* Developer Tools */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setToolsMenuOpen(true)}
+              className="w-9 h-9 p-0"
+              title="Developer Tools & Integrations"
+            >
+              <Wrench className="w-4 h-4" />
+            </Button>
             
             {/* Settings */}
             <Button
@@ -144,6 +174,13 @@ export function PrestigeBrandHeader({
           </div>
         </div>
       </div>
+
+      {/* Tools Menu Dialog */}
+      <ToolsMenuDialog
+        isOpen={toolsMenuOpen}
+        onClose={() => setToolsMenuOpen(false)}
+        currentApp={currentApp}
+      />
     </div>
   );
 }

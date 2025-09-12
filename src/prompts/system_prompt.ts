@@ -459,15 +459,25 @@ export const constructSystemPrompt = ({
   aiRules,
   chatMode = "build",
   fileStructure,
+  appPath,
 }: {
   aiRules: string | undefined;
   chatMode?: "build" | "ask";
   fileStructure?: string;
+  appPath?: string;
 }) => {
   const systemPrompt =
     chatMode === "ask" ? ASK_MODE_SYSTEM_PROMPT : BUILD_SYSTEM_PROMPT;
 
   let finalPrompt = systemPrompt.replace("[[AI_RULES]]", aiRules ?? DEFAULT_AI_RULES);
+  
+  // Add integration context based on app's integration status
+  // This follows dyad's approach from chat_stream_handlers.ts lines 510-526
+  if (appPath && chatMode === "build") {
+    // This will be handled asynchronously in the calling code
+    // We'll add a separate function for async integration detection
+    finalPrompt += "\n\n[[INTEGRATION_PROMPTS]]";
+  }
   
   // Add file structure context if available
   if (fileStructure) {
@@ -503,6 +513,69 @@ All shadcn/ui components and their dependencies are already installed and availa
   }
 
   return finalPrompt;
+};
+
+export const constructSystemPromptAsync = async ({
+  aiRules,
+  chatMode = "build",
+  fileStructure,
+  appPath,
+}: {
+  aiRules: string | undefined;
+  chatMode?: "build" | "ask";
+  fileStructure?: string;
+  appPath?: string;
+}) => {
+  // Get base system prompt
+  const basePrompt = constructSystemPrompt({
+    aiRules,
+    chatMode,
+    fileStructure,
+    appPath,
+  });
+
+  // If we don't have integration prompts placeholder, return as-is
+  if (!basePrompt.includes("[[INTEGRATION_PROMPTS]]")) {
+    return basePrompt;
+  }
+
+  // Handle integration detection asynchronously
+  let integrationPrompts = '';
+  if (appPath && chatMode === "build") {
+    try {
+      // Dynamic import for browser compatibility
+      const integrationModule = await import('@/services/integrationService');
+      const integrationService = integrationModule.integrationService;
+      
+      const integrationStatus = await integrationService.detectIntegrationStatus(appPath);
+      const prompts = integrationService.generateIntegrationPrompts(integrationStatus);
+      
+      // Combine integration prompts
+      integrationPrompts = [
+        prompts.github,
+        prompts.supabase,
+        prompts.vercel
+      ].filter(prompt => prompt.trim()).join('\n\n');
+      
+    } catch (error) {
+      console.warn('Error detecting integrations:', error);
+      // Fallback: add basic integration not available prompts
+      const { 
+        GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT,
+        SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
+        VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT 
+      } = await import('@/prompts/integration_prompts');
+      
+      integrationPrompts = [
+        GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT,
+        SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
+        VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT
+      ].join('\n\n');
+    }
+  }
+
+  // Replace integration prompts placeholder
+  return basePrompt.replace("[[INTEGRATION_PROMPTS]]", integrationPrompts);
 };
 
 export const readAiRules = async (appPath: string) => {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { Message, App, Conversation } from '@/types';
 import { LargeLanguageModel, DEFAULT_MODEL } from '@/lib/models';
+import { useApiKeyStore } from '@/lib/apiKeys';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { GitHubService } from '@/services/githubService';
 import { VercelService } from '@/services/vercelService';
@@ -64,7 +65,12 @@ const useAppStore = create<AppState>()(
       currentApp: null,
       currentConversation: null,
       currentAppConversations: [],
-      selectedModel: DEFAULT_MODEL,
+      selectedModel: (() => {
+        // Try to get a recommended model based on available API keys
+        const apiKeyStore = useApiKeyStore.getState();
+        const recommendedModel = apiKeyStore.getRecommendedModel();
+        return recommendedModel || DEFAULT_MODEL;
+      })(),
       isGenerating: false,
       error: null,
       chatSummary: null,

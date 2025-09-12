@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Check, ChevronDown, Key, AlertCircle, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,27 @@ export function EnhancedModelPicker({
   showStatus = true 
 }: EnhancedModelPickerProps) {
   const [open, setOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
+  // Listen for API key changes to refresh the display
+  React.useEffect(() => {
+    const handleApiKeyChange = () => {
+      setRefreshTrigger(prev => prev + 1);
+    };
+    
+    window.addEventListener('apiKeyChanged', handleApiKeyChange);
+    return () => window.removeEventListener('apiKeyChanged', handleApiKeyChange);
+  }, []);
+  
+  // Sort providers by availability - available ones first
+  const sortedProviders = [...modelProviders].sort((a, b) => {
+    const aHasAvailableModels = a.models.some(model => getModelAvailability(model.name, model.provider).status === 'ready');
+    const bHasAvailableModels = b.models.some(model => getModelAvailability(model.name, model.provider).status === 'ready');
+    
+    if (aHasAvailableModels && !bHasAvailableModels) return -1;
+    if (!aHasAvailableModels && bHasAvailableModels) return 1;
+    return 0;
+  });
 
   const getStatusIcon = (model: LargeLanguageModel) => {
     const availability = getModelAvailability(model.name, model.provider);
@@ -97,9 +118,20 @@ export function EnhancedModelPicker({
           <CommandInput placeholder="Search models..." className="h-9" />
           <CommandList>
             <CommandEmpty>No models found.</CommandEmpty>
-            {modelProviders.map((provider) => (
+            {sortedProviders.map((provider) => {
+              // Sort models within each provider - available ones first
+              const sortedModels = [...provider.models].sort((a, b) => {
+                const aAvailability = getModelAvailability(a.name, a.provider);
+                const bAvailability = getModelAvailability(b.name, b.provider);
+                
+                if (aAvailability.status === 'ready' && bAvailability.status !== 'ready') return -1;
+                if (aAvailability.status !== 'ready' && bAvailability.status === 'ready') return 1;
+                return 0;
+              });
+              
+              return (
               <CommandGroup key={provider.id} heading={provider.name}>
-                {provider.models.map((model) => {
+                {sortedModels.map((model) => {
                   const isSelected = selectedModel.name === model.name && selectedModel.provider === model.provider;
                   
                   return (
@@ -145,11 +177,12 @@ export function EnhancedModelPicker({
                     </CommandItem>
                   );
                 })}
-                {provider !== modelProviders[modelProviders.length - 1] && (
+                {provider !== sortedProviders[sortedProviders.length - 1] && (
                   <Separator className="my-2" />
                 )}
               </CommandGroup>
-            ))}
+              );
+            })}
           </CommandList>
         </Command>
         {onApiKeyDialogOpen && (

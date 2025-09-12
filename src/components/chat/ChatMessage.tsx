@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import type { Message } from '@/types';
 import { formatTimestamp } from '@/lib/utils';
 import { User, Bot, FileText, Download } from 'lucide-react';
-import { EnhancedMarkdownRenderer } from './EnhancedMarkdownRenderer';
+import { PrestigeMarkdownRenderer } from './PrestigeMarkdownRenderer';
 
 interface ChatMessageProps {
   message: Message;
@@ -43,7 +43,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
             </div>
             
             <div className="whitespace-pre-wrap">
-              {isUser ? message.content : <EnhancedMarkdownRenderer content={message.content} isStreaming={false} />}
+              {isUser ? message.content : <PrestigeMarkdownRenderer content={message.content} isStreaming={false} />}
             </div>
             
             {message.fileChanges && Array.isArray(message.fileChanges) && message.fileChanges.length > 0 && (
