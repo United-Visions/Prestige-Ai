@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Loader, StopCircle, Zap, Brain } from 'lucide-react';
 import { ThinkingBlock } from './ThinkingBlock';
 import { EnhancedMarkdownRenderer } from './EnhancedMarkdownRenderer';
+import { PrestigeBlockRenderer } from './blocks/PrestigeBlockRenderer';
+import { useStreamingAgentProcessor } from '@/services/streamingAgentProcessor';
 
 interface StreamingChunk {
   type: 'thinking' | 'content' | 'code' | 'artifact';
@@ -26,9 +28,10 @@ interface StreamingResponseProps {
   totalTokens?: number;
   streamingSpeed?: number; // chars per second
   className?: string;
+  useBlockRenderer?: boolean; // New prop to enable block-based rendering
 }
 
-export function StreamingResponse({ 
+export function StreamingResponse({
   streamId,
   isStreaming,
   chunks,
@@ -36,7 +39,8 @@ export function StreamingResponse({
   model = 'Unknown',
   totalTokens = 0,
   streamingSpeed = 0,
-  className = ''
+  className = '',
+  useBlockRenderer = true // Default to using block renderer
 }: StreamingResponseProps) {
   const [displayedContent, setDisplayedContent] = useState('');
   const [currentThinking, setCurrentThinking] = useState('');
@@ -170,13 +174,26 @@ export function StreamingResponse({
       {displayedContent && (
         <Card className="relative">
           <CardContent className="p-4">
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <EnhancedMarkdownRenderer content={displayedContent} />
-            </div>
-            
-            {/* Streaming cursor */}
-            {isStreaming && (
-              <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-1 align-middle" />
+            {useBlockRenderer ? (
+              // Use new Prestige block-based renderer
+              <div className="prestige-block-content">
+                <PrestigeBlockRenderer content={displayedContent} isStreaming={isStreaming} />
+
+                {/* Streaming cursor */}
+                {isStreaming && (
+                  <span className="inline-block w-2 h-4 bg-gradient-to-r from-blue-500 to-purple-500 animate-pulse ml-2 align-middle rounded" />
+                )}
+              </div>
+            ) : (
+              // Legacy markdown renderer
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <EnhancedMarkdownRenderer content={displayedContent} />
+
+                {/* Streaming cursor */}
+                {isStreaming && (
+                  <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-1 align-middle" />
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

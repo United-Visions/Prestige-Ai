@@ -188,14 +188,124 @@ Throughout the codebase, comments reference dyad patterns:
 - File operations logged in main process
 - Proxy server status in preview panel
 
+## Prestige AI Block System
+
+### Overview
+Inspired by dyad's block-based response system, Prestige AI now features animated, interactive blocks that provide real-time visual feedback during AI streaming responses.
+
+### Block Components
+
+#### **PrestigeThinkBlock** (`src/components/chat/blocks/PrestigeThinkBlock.tsx`)
+- **Purpose**: Display AI's thinking process with collapsible content
+- **Visual**: Purple gradient background with Brain icon
+- **Animation**: Auto-expands during streaming, collapses when finished
+- **Features**: Animated dots indicator, smooth transitions
+
+#### **PrestigeWriteBlock** (`src/components/chat/blocks/PrestigeWriteBlock.tsx`)
+- **Purpose**: Show file creation/editing operations
+- **Visual**: Green gradient background with FileText icon
+- **Animation**: Progress bar during execution, checkmark when complete
+- **Features**: File path display, syntax highlighting, status indicators
+
+#### **PrestigeAddDependencyBlock** (`src/components/chat/blocks/PrestigeAddDependencyBlock.tsx`)
+- **Purpose**: Display package installation operations
+- **Visual**: Blue gradient background with Download icon
+- **Animation**: Individual package progress indicators
+- **Features**: Package list display, installation status per package
+
+#### **PrestigeCommandBlock** (`src/components/chat/blocks/PrestigeCommandBlock.tsx`)
+- **Purpose**: Show application lifecycle commands
+- **Visual**: Orange gradient background with command-specific icons
+- **Animation**: Terminal-style output with typing cursor
+- **Features**: Command output simulation, status feedback
+
+#### **PrestigeAddIntegrationBlock** (`src/components/chat/blocks/PrestigeAddIntegrationBlock.tsx`)
+- **Purpose**: Display third-party service integrations
+- **Visual**: Indigo gradient background with provider-specific icons
+- **Animation**: Setup step progression
+- **Features**: Provider branding, setup checklist, status tracking
+
+### Block States
+```typescript
+type PrestigeBlockState = "pending" | "finished" | "aborted";
+```
+- **pending**: Block is actively processing (shows animations)
+- **finished**: Block has completed successfully (shows completion state)
+- **aborted**: Block was cancelled or failed (shows error state)
+
+### Integration Components
+
+#### **PrestigeBlockRenderer** (`src/components/chat/blocks/PrestigeBlockRenderer.tsx`)
+- Main component that parses content and renders appropriate blocks
+- Handles both complete and incomplete tags during streaming
+- Supports all Prestige AI tags with animated states
+
+#### **StreamingAgentProcessor** (`src/services/streamingAgentProcessor.ts`)
+- Enhanced processor with real-time state management
+- Tracks streaming operations and block states
+- Handles partial tag parsing and completion detection
+
+### Usage Examples
+
+#### Basic Integration
+```tsx
+import { PrestigeBlockRenderer } from '@/components/chat/blocks/PrestigeBlockRenderer';
+
+<PrestigeBlockRenderer
+  content={aiResponse}
+  isStreaming={isStreamingActive}
+/>
+```
+
+#### With Streaming Processor
+```tsx
+import { useStreamingAgentProcessor } from '@/services/streamingAgentProcessor';
+
+const { processStreamingChunk, processFinalResponse } = useStreamingAgentProcessor();
+
+// During streaming
+processStreamingChunk(streamId, chunk, fullResponse, (operations) => {
+  // Handle block state updates
+});
+
+// When streaming completes
+processFinalResponse(streamId, finalResponse, true);
+```
+
+### Demo Component
+**PrestigeBlockDemo** (`src/components/chat/blocks/PrestigeBlockDemo.tsx`)
+- Interactive demonstration of all block types
+- Simulates streaming responses with step-by-step progression
+- Shows all block states and animations in action
+
+### Key Features
+
+1. **Real-time Animation**: Blocks animate during streaming and show completion states
+2. **State Management**: Tracks pending, finished, and aborted states for each operation
+3. **Interactive UI**: Collapsible blocks with smooth transitions
+4. **Progress Indicators**: Visual feedback for ongoing operations
+5. **Error Handling**: Graceful handling of incomplete or malformed tags
+6. **Backward Compatibility**: Works alongside existing Prestige components
+
+### Performance Optimizations
+
+- Efficient tag parsing with regex optimization
+- Memoized content processing
+- Smooth CSS transitions instead of JavaScript animations
+- Incremental block state updates during streaming
+
 ## Future Enhancements
 
-- Additional integration providers
+- Additional integration providers (AWS, Azure, Firebase)
 - Enhanced error handling in tag processing
 - Real-time collaboration tags
 - Deployment automation tags
 - Testing framework tags
+- Block drag-and-drop reordering
+- Custom block themes and animations
+- Block export/import functionality
 
 ---
 
-*This documentation is auto-generated based on code analysis. Last updated: sep 2025*
+*This documentation is auto-generated based on code analysis. Last updated: Sep 2025*
+*Block system implementation completed with dyad-inspired architecture*

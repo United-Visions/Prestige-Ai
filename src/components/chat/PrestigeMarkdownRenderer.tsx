@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { PrestigeBlockRenderer } from "./blocks/PrestigeBlockRenderer";
 import { ThinkingDisplay } from "./ThinkingDisplay";
 import { PrestigeAddIntegration } from "./PrestigeAddIntegration";
 import { PrestigeCommandProcessor } from "./PrestigeCommandProcessor";
@@ -54,9 +55,29 @@ const SimpleMarkdown: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-export const PrestigeMarkdownRenderer: React.FC<PrestigeMarkdownRendererProps> = ({ 
-  content, 
-  isStreaming = false 
+export const PrestigeMarkdownRenderer: React.FC<PrestigeMarkdownRendererProps> = ({
+  content,
+  isStreaming = false
+}) => {
+  // Use the new block-based renderer instead of the legacy parser
+  return (
+    <div className="space-y-4">
+      <PrestigeBlockRenderer content={content} isStreaming={isStreaming} />
+
+      {/* Fallback to legacy components for backward compatibility */}
+      <div className="hidden">
+        <LegacyPrestigeRenderer content={content} isStreaming={isStreaming} />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Legacy renderer for backward compatibility
+ */
+const LegacyPrestigeRenderer: React.FC<PrestigeMarkdownRendererProps> = ({
+  content,
+  isStreaming = false
 }) => {
   // Parse content into different types (thinking, integrations, commands, markdown)
   const contentPieces = useMemo(() => {
@@ -76,26 +97,26 @@ export const PrestigeMarkdownRenderer: React.FC<PrestigeMarkdownRendererProps> =
               <ThinkingDisplay content={piece.content} isActive={isStreaming} />
             </div>
           )}
-          
+
           {piece.type === "prestige-add-integration" && (
-            <PrestigeAddIntegration 
+            <PrestigeAddIntegration
               provider={piece.provider as 'github' | 'supabase' | 'vercel'}
             >
               {piece.content}
             </PrestigeAddIntegration>
           )}
-          
+
           {piece.type === "prestige-command" && (
-            <PrestigeCommandProcessor 
-              type={piece.commandType as 'rebuild' | 'restart' | 'refresh'} 
+            <PrestigeCommandProcessor
+              type={piece.commandType as 'rebuild' | 'restart' | 'refresh'}
             />
           )}
-          
+
           {piece.type === "prestige-chat-summary" && (
             // Chat summary is typically not displayed to users
             <div className="hidden" data-chat-summary={piece.content} />
           )}
-          
+
           {piece.type === "markdown" && piece.content.trim() && (
             <div className="prose dark:prose-invert max-w-none">
               <SimpleMarkdown content={piece.content} />

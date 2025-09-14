@@ -1,6 +1,5 @@
-import { spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs/promises';
+// Use Electron APIs instead of Node.js imports
+const { spawn, path, fs } = window.electronAPI;
 
 // Problem schemas
 export interface Problem {

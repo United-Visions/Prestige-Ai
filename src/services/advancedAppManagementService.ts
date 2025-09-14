@@ -199,19 +199,54 @@ export class AdvancedAppManagementService {
 
       // Get app path
       const appPath = await this.fileSystemService.getAppPath(app.name);
-      
+
       // Store callbacks
       this.appOutputCallbacks.set(appId, onOutput);
       if (onError) {
         this.appErrorCallbacks.set(appId, onError);
       }
 
-      // Use IPC to rebuild app in main process
+      // Use IPC to rebuild app in main process with better error handling
       const result = await window.electronAPI.advancedApp.rebuild(appId, appPath);
-      
+
+      // Check if the result indicates an error (new error boundary handling)
+      if (result && typeof result === 'object' && 'error' in result && 'success' in result) {
+        if (!result.success) {
+          // Handle rebuild failure gracefully instead of throwing
+          if (onError) {
+            onError({
+              type: 'build-error-report',
+              payload: {
+                message: result.error || 'Rebuild failed',
+                stack: undefined
+              },
+              timestamp: Date.now(),
+              appId
+            });
+          }
+
+          // Still throw to maintain API compatibility, but with a more informative message
+          throw new Error(`Rebuild failed: ${result.error}`);
+        }
+      }
+
       return result;
     } catch (error) {
       console.error(`Error rebuilding app ${appId}:`, error);
+
+      // Provide additional error context for debugging
+      if (onError) {
+        onError({
+          type: 'build-error-report',
+          payload: {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          },
+          timestamp: Date.now(),
+          appId
+        });
+      }
+
       throw error;
     }
   }

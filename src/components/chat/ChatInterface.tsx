@@ -20,6 +20,7 @@ import { AdvancedAppManagementService } from '@/services/advancedAppManagementSe
 import { PrestigeMarkdownRenderer } from './PrestigeMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
 import type { Message } from '@/types';
+import { useEnhancedStreaming } from '@/services/enhancedStreamingService';
 
 export function ChatInterface() {
   const {
@@ -46,6 +47,9 @@ export function ChatInterface() {
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+
+  // Enhanced streaming service
+  const { startEnhancedStream, cancelStream } = useEnhancedStreaming();
 
   useEffect(() => {
     loadApps();
@@ -183,23 +187,34 @@ export function ChatInterface() {
       }
 
       const systemPrompt = await getSystemPrompt();
-      let agentResponse: string;
 
-      // Always use streaming for better UX, with enhanced thinking support
-      if (true) {
-        setIsStreamingResponse(true);
-        let fullResponse = '';
-        let inThinkingBlock = false;
-        let thinkingContent = '';
+      // Use enhanced streaming service with auto-fix capabilities
+      setIsStreamingResponse(true);
+      let agentResponse = '';
 
-        const processResponse = async () => {
+      const aiRequestFunction = async (prompt: string) => {
+        return aiModelService.generateResponse(selectedModel, systemPrompt, [
+          ...currentMessages,
+          { id: Date.now(), content: prompt, role: 'user', createdAt: new Date(), conversationId }
+        ]);
+      };
+
+      await startEnhancedStream(content, {
+        onChunk: (chunk: string, fullResponse: string) => {
+          if (controller.signal.aborted) return;
+          setStreamingContent(fullResponse);
+        },
+        onComplete: async (response: string) => {
+          if (controller.signal.aborted) return;
+          agentResponse = response;
+
           try {
             const agentResult = await processContinuousAgentResponse(agentResponse);
-            
+
             if (agentResult && agentResult.chatContent) {
               const { chatContent, chatSummary } = agentResult;
-              await addMessage(conversationId, { 
-                content: chatContent, 
+              await addMessage(conversationId, {
+                content: chatContent,
                 role: 'assistant',
                 createdAt: new Date()
               });
@@ -207,16 +222,16 @@ export function ChatInterface() {
                 useAppStore.getState().setChatSummary(chatSummary);
               }
             } else {
-              await addMessage(conversationId, { 
-                content: agentResponse, 
+              await addMessage(conversationId, {
+                content: agentResponse,
                 role: 'assistant',
                 createdAt: new Date()
               });
             }
           } catch (err) {
             console.error('Error processing response:', err);
-            await addMessage(conversationId, { 
-              content: agentResponse, 
+            await addMessage(conversationId, {
+              content: agentResponse,
               role: 'assistant',
               createdAt: new Date()
             });
@@ -225,104 +240,22 @@ export function ChatInterface() {
             setIsStreamingResponse(false);
             setStreamingContent('');
           }
-        };
+        },
+        onError: (error: Error) => {
+          if (controller.signal.aborted) return;
+          setError(error.message);
+          setIsGenerating(false);
+          setIsStreamingResponse(false);
+          setStreamingContent('');
+        },
+        onAutoFixNeeded: (fixPrompt: string) => {
+          console.log('🔧 Auto-fix needed:', fixPrompt);
+        },
+        enableAutoFix: true,
+        enableAggressiveFixes: true,
+        aiRequestFunction
+      });
 
-        await aiModelService.streamResponse(
-          selectedModel,
-          systemPrompt,
-          currentMessages,
-          {
-            onChunk: (chunk: StreamChunk) => {
-              if (controller.signal.aborted) return;
-
-              if (chunk.type === 'reasoning') {
-                // Handle reasoning/thinking content - dyad style
-                if (chunk.content === '<think>') {
-                  inThinkingBlock = true;
-                  thinkingContent = '';
-                } else if (chunk.content === '</think>') {
-                  inThinkingBlock = false;
-                } else if (inThinkingBlock) {
-                  thinkingContent += chunk.content;
-                }
-                
-                // Update streaming content with thinking blocks
-                setStreamingContent(prev => {
-                  // Remove any existing incomplete thinking block
-                  const withoutIncompleteThinking = prev.replace(/<think>(?!.*<\/think>).*$/s, '');
-                  
-                  if (inThinkingBlock && thinkingContent) {
-                    return withoutIncompleteThinking + `<think>${thinkingContent}</think>\n\n`;
-                  } else if (thinkingContent) {
-                    return withoutIncompleteThinking + `<think>${thinkingContent}</think>\n\n`;
-                  }
-                  return withoutIncompleteThinking;
-                });
-              } else if (chunk.type === 'text-delta') {
-                // Handle actual response content
-                fullResponse += chunk.content;
-                
-                setStreamingContent(prev => {
-                  // Ensure thinking blocks are preserved
-                  const thinkingBlocks = prev.match(/<think>.*?<\/think>/gs) || [];
-                  const nonThinkingContent = prev.replace(/<think>.*?<\/think>\s*/gs, '');
-                  
-                  const thinkingPrefix = thinkingBlocks.length > 0 
-                    ? thinkingBlocks.join('\n\n') + '\n\n'
-                    : '';
-                  
-                  return thinkingPrefix + nonThinkingContent + chunk.content;
-                });
-              }
-            },
-            onComplete: (response: string) => {
-              if (controller.signal.aborted) return;
-              agentResponse = response;
-              processResponse();
-            },
-            onError: (error: string) => {
-              if (controller.signal.aborted) return;
-              setError(error);
-              setIsGenerating(false);
-              setIsStreamingResponse(false);
-              setStreamingContent('');
-            },
-            settings: {
-              thinkingBudget: -1,
-              temperature: 0.1,
-              maxOutputTokens: 8192
-            }
-          }
-        );
-
-        return;
-      } else {
-        agentResponse = await aiModelService.generateResponse(
-          selectedModel,
-          systemPrompt,
-          currentMessages
-        );
-      }
-      
-      const agentResult = await processContinuousAgentResponse(agentResponse);
-      
-      if (agentResult && agentResult.chatContent) {
-        const { chatContent, chatSummary } = agentResult;
-        await addMessage(conversationId, { 
-          content: chatContent, 
-          role: 'assistant',
-          createdAt: new Date()
-        });
-        if (chatSummary) {
-          useAppStore.getState().setChatSummary(chatSummary);
-        }
-      } else {
-        await addMessage(conversationId, { 
-          content: agentResponse, 
-          role: 'assistant',
-          createdAt: new Date()
-        });
-      }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';

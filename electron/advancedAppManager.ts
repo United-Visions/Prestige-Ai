@@ -58,15 +58,15 @@ export class AdvancedAppManager {
       }
     }
     
-    this.sendOutput(appId, {
+    this.safeSendOutput(appId, {
       message: `Available package managers: ${available.length > 0 ? available.join(', ') : 'none detected'}`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
     });
-    
+
     if (available.length === 0) {
-      this.sendOutput(appId, {
+      this.safeSendOutput(appId, {
         message: `Warning: No package managers detected. Please ensure Node.js and a package manager (npm, pnpm, or yarn) are installed and in your PATH.`,
         type: 'stderr',
         appId,
@@ -150,39 +150,195 @@ export class AdvancedAppManager {
       return Array.from(this.runningProcesses.keys());
     });
 
-    // Rebuild app
+    // Rebuild app with enhanced error boundaries
     ipcMain.handle('advanced-app:rebuild', async (_event, appId: number, appPath: string) => {
       console.log(`[IPC] ===== REBUILD REQUEST RECEIVED =====`);
       console.log(`[IPC] App ID: ${appId}`);
       console.log(`[IPC] App Path: ${appPath}`);
+
       try {
+        // Validate inputs
+        if (!appId || !appPath) {
+          throw new Error('Invalid parameters: appId and appPath are required');
+        }
+
         console.log(`[IPC] Calling rebuildApp method`);
         const result = await this.rebuildApp(appId, appPath);
         console.log(`[IPC] Rebuild completed successfully`);
         console.log(`[IPC] ===== REBUILD REQUEST END =====`);
         return result;
+
       } catch (error) {
         console.error('[IPC] ===== REBUILD ERROR =====');
         console.error('[IPC] Error rebuilding app:', error);
+        console.error('[IPC] Stack:', error instanceof Error ? error.stack : 'No stack available');
         console.error('[IPC] ===== REBUILD ERROR END =====');
-        throw error;
+
+        // Send error output to UI instead of letting it crash
+        this.safeSendOutput(appId, {
+          message: `Rebuild failed: ${error instanceof Error ? error.message : String(error)}`,
+          type: 'stderr',
+          appId,
+          timestamp: Date.now()
+        });
+
+        // Return error result instead of throwing to prevent main process crash
+        return {
+          error: error instanceof Error ? error.message : String(error),
+          success: false
+        };
       }
     });
   }
 
   private sendOutput(appId: number, output: AppOutput) {
-    console.log(`[OUTPUT] Attempting to send output for app ${appId}: ${output.message}`);
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+    console.log(`[OUTPUT] ===== SENDING OUTPUT FOR APP ${appId} =====`);
+    console.log(`[OUTPUT] Message: ${output.message}`);
+    console.log(`[OUTPUT] Type: ${output.type}`);
+    console.log(`[OUTPUT] Timestamp: ${output.timestamp}`);
+
+    // Enhanced error detection and auto-fix triggering
+    if (output.type === 'stderr') {
+      console.log(`[OUTPUT] Detected stderr, triggering error handling`);
+      this.handleAppError(appId, output.message);
+    }
+
+    // More robust window validation
+    console.log(`[OUTPUT] Checking window state...`);
+    console.log(`[OUTPUT] mainWindow exists: ${!!this.mainWindow}`);
+
+    if (this.mainWindow) {
+      console.log(`[OUTPUT] mainWindow.isDestroyed(): ${this.mainWindow.isDestroyed()}`);
+      console.log(`[OUTPUT] webContents exists: ${!!this.mainWindow.webContents}`);
+      console.log(`[OUTPUT] webContents.isDestroyed(): ${this.mainWindow.webContents?.isDestroyed()}`);
+    }
+
+    if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents && !this.mainWindow.webContents.isDestroyed()) {
       try {
-        console.log(`[OUTPUT] Window is valid, sending output for app ${appId}`);
+        console.log(`[OUTPUT] Window and webContents are valid, sending output for app ${appId}`);
         this.mainWindow.webContents.send('advanced-app:output', appId, output);
-        console.log(`[OUTPUT] Output sent successfully for app ${appId}`);
+        console.log(`[OUTPUT] ✅ Output sent successfully for app ${appId}`);
       } catch (error) {
-        // Window was destroyed between check and send, ignore
-        console.warn(`[OUTPUT] Failed to send output for app ${appId}, window destroyed:`, error);
+        console.error(`[OUTPUT] ❌ Failed to send output for app ${appId}:`, error);
+        console.error(`[OUTPUT] Error type: ${error.constructor.name}`);
+        console.error(`[OUTPUT] Error message: ${error.message}`);
+        console.error(`[OUTPUT] Window destroyed during send, ignoring gracefully`);
       }
     } else {
-      console.warn(`[OUTPUT] Cannot send output for app ${appId}: window is null or destroyed`);
+      const reasons = [];
+      if (!this.mainWindow) reasons.push('mainWindow is null');
+      if (this.mainWindow?.isDestroyed()) reasons.push('mainWindow is destroyed');
+      if (!this.mainWindow?.webContents) reasons.push('webContents is null');
+      if (this.mainWindow?.webContents?.isDestroyed()) reasons.push('webContents is destroyed');
+
+      console.warn(`[OUTPUT] ⚠️ Cannot send output for app ${appId}: ${reasons.join(', ')}`);
+      console.warn(`[OUTPUT] Discarding output message: ${output.message}`);
+    }
+
+    console.log(`[OUTPUT] ===== END OUTPUT FOR APP ${appId} =====`);
+  }
+
+  private safeSendOutput(appId: number, output: AppOutput) {
+    console.log(`[SAFE-OUTPUT] ===== SAFE SENDING OUTPUT FOR APP ${appId} =====`);
+
+    // Add extra safety checks to prevent crashes
+    if (!this.mainWindow) {
+      console.warn(`[SAFE-OUTPUT] mainWindow is null, storing output for later: ${output.message}`);
+      return;
+    }
+
+    if (this.mainWindow.isDestroyed()) {
+      console.warn(`[SAFE-OUTPUT] mainWindow is destroyed, discarding output: ${output.message}`);
+      return;
+    }
+
+    if (!this.mainWindow.webContents) {
+      console.warn(`[SAFE-OUTPUT] webContents is null, discarding output: ${output.message}`);
+      return;
+    }
+
+    if (this.mainWindow.webContents.isDestroyed()) {
+      console.warn(`[SAFE-OUTPUT] webContents is destroyed, discarding output: ${output.message}`);
+      return;
+    }
+
+    try {
+      console.log(`[SAFE-OUTPUT] All checks passed, sending output: ${output.message}`);
+      this.mainWindow.webContents.send('advanced-app:output', appId, output);
+      console.log(`[SAFE-OUTPUT] ✅ Output sent successfully`);
+    } catch (error) {
+      console.error(`[SAFE-OUTPUT] ❌ Failed to send output despite checks:`, error);
+      console.error(`[SAFE-OUTPUT] This should not happen - indicates deeper IPC issue`);
+    }
+
+    console.log(`[SAFE-OUTPUT] ===== END SAFE OUTPUT FOR APP ${appId} =====`);
+  }
+
+  // Enhanced error detection and auto-fix system
+  private handleAppError(appId: number, errorMessage: string) {
+    try {
+      // Detect common error patterns that need auto-fix
+      if (this.isImportResolutionError(errorMessage)) {
+        console.log(`[AUTO-FIX] 🔍 Import resolution error detected for app ${appId}`);
+        this.triggerAutoFix(appId, errorMessage, 'import-resolution');
+      } else if (this.isBuildError(errorMessage)) {
+        console.log(`[AUTO-FIX] 🔍 Build error detected for app ${appId}`);
+        this.triggerAutoFix(appId, errorMessage, 'build-error');
+      } else if (this.isTypeScriptError(errorMessage)) {
+        console.log(`[AUTO-FIX] 🔍 TypeScript error detected for app ${appId}`);
+        this.triggerAutoFix(appId, errorMessage, 'typescript-error');
+      }
+    } catch (error) {
+      console.error(`[AUTO-FIX] Error handling app error:`, error);
+    }
+  }
+
+  private isImportResolutionError(errorMessage: string): boolean {
+    const patterns = [
+      /Failed to resolve import/,
+      /Cannot resolve module/,
+      /Module not found/,
+      /Cannot find module/
+    ];
+    return patterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  private isBuildError(errorMessage: string): boolean {
+    const patterns = [
+      /Build failed/,
+      /Compilation failed/,
+      /webpack.*error/i,
+      /vite.*error/i
+    ];
+    return patterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  private isTypeScriptError(errorMessage: string): boolean {
+    const patterns = [
+      /TypeScript.*error/,
+      /TS\d{4}:/,
+      /Type.*is not assignable/,
+      /Property.*does not exist/
+    ];
+    return patterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  private async triggerAutoFix(appId: number, errorMessage: string, errorType: string) {
+    try {
+      console.log(`[AUTO-FIX] 🔧 Triggering auto-fix for app ${appId}, type: ${errorType}`);
+
+      // Send auto-fix trigger to renderer process
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('auto-fix:trigger', {
+          appId,
+          errorMessage,
+          errorType,
+          timestamp: Date.now()
+        });
+        console.log(`[AUTO-FIX] ✅ Auto-fix trigger sent for app ${appId}`);
+      }
+    } catch (error) {
+      console.error(`[AUTO-FIX] Failed to trigger auto-fix for app ${appId}:`, error);
     }
   }
 
@@ -202,8 +358,10 @@ export class AdvancedAppManager {
     console.log(`[RUN] Killing any orphaned processes on port 32100 before starting app ${appId}`);
     await this.killProcessOnPort(32100);
 
-    // Add starting message
-    this.sendOutput(appId, {
+    // Add starting message with safe output
+    console.log(`[RUN] ===== STARTING APP ${appId} =====`);
+    console.log(`[RUN] App path: ${appPath}`);
+    this.safeSendOutput(appId, {
       message: "Starting app...",
       type: "stdout",
       appId,
@@ -255,28 +413,32 @@ export class AdvancedAppManager {
     }
     
     // Log environment details for debugging
-    this.sendOutput(appId, {
+    console.log(`[SPAWN] ===== SPAWNING DEV SERVER FOR APP ${appId} =====`);
+    console.log(`[SPAWN] Files path: ${filesPath}`);
+    console.log(`[SPAWN] Command: ${command}`);
+
+    this.safeSendOutput(appId, {
       message: `Debug: Spawning dev server for app ${appId}...`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
     });
 
-    this.sendOutput(appId, {
+    this.safeSendOutput(appId, {
       message: `Environment PATH: ${fixedEnv.PATH}`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
     });
 
-    this.sendOutput(appId, {
+    this.safeSendOutput(appId, {
       message: `Executing command: ${command} ${args.join(' ')}`,
       type: 'stdout',
       appId,
       timestamp: Date.now()
     });
 
-    this.sendOutput(appId, {
+    this.safeSendOutput(appId, {
       message: `Working directory: ${filesPath}`,
       type: 'stdout',
       appId,
@@ -294,7 +456,7 @@ export class AdvancedAppManager {
     childProcess.stdout?.on('data', async (data: Buffer) => {
       const message = data.toString();
       console.log(`[APP-${appId}-STDOUT]`, message);
-      this.sendOutput(appId, {
+      this.safeSendOutput(appId, {
         message,
         type: 'stdout',
         appId,
@@ -311,7 +473,8 @@ export class AdvancedAppManager {
           try {
             this.globalProxyWorker = await startProxy(urlMatch[1], {
               onStarted: (proxyUrl: string) => {
-                this.sendOutput(appId, {
+                console.log(`[PROXY] Started proxy for app ${appId}: ${proxyUrl}`);
+                this.safeSendOutput(appId, {
                   message: `[prestige-proxy-server]started=[${proxyUrl}] original=[${urlMatch[1]}]`,
                   type: 'stdout',
                   appId,
@@ -319,7 +482,8 @@ export class AdvancedAppManager {
                 });
               },
               onMessage: (proxyMessage: string) => {
-                this.sendOutput(appId, {
+                console.log(`[PROXY] Message for app ${appId}: ${proxyMessage}`);
+                this.safeSendOutput(appId, {
                   message: `[proxy] ${proxyMessage}`,
                   type: 'stdout',
                   appId,
@@ -337,7 +501,7 @@ export class AdvancedAppManager {
             console.log(`[APP-${appId}] Proxy server started successfully for ${urlMatch[1]}`);
           } catch (proxyError) {
             console.error(`[APP-${appId}] Failed to start proxy server:`, proxyError);
-            this.sendOutput(appId, {
+            this.safeSendOutput(appId, {
               message: `Failed to start proxy server: ${proxyError}`,
               type: 'stderr',
               appId,
@@ -351,16 +515,22 @@ export class AdvancedAppManager {
     childProcess.stderr?.on('data', (data: Buffer) => {
       const message = data.toString();
       console.log(`[APP-${appId}-STDERR]`, message);
-      this.sendOutput(appId, {
+      console.log(`[STDERR-HANDLER] ===== PROCESSING STDERR FOR APP ${appId} =====`);
+      console.log(`[STDERR-HANDLER] Message: ${message.substring(0, 200)}...`);
+
+      // This is likely where the crash occurs - use safeSendOutput
+      this.safeSendOutput(appId, {
         message,
         type: 'stderr',
         appId,
         timestamp: Date.now()
       });
+      console.log(`[STDERR-HANDLER] ===== STDERR PROCESSED SAFELY =====`);
     });
 
     childProcess.on('close', (code: number | null) => {
-      this.sendOutput(appId, {
+      console.log(`[PROCESS-CLOSE] App ${appId} exited with code ${code}`);
+      this.safeSendOutput(appId, {
         message: `Dev server exited with code ${code}`,
         type: code === 0 ? 'stdout' : 'stderr',
         appId,
@@ -373,7 +543,8 @@ export class AdvancedAppManager {
     });
 
     childProcess.on('error', (error: Error) => {
-      this.sendOutput(appId, {
+      console.log(`[PROCESS-ERROR] App ${appId} process error: ${error.message}`);
+      this.safeSendOutput(appId, {
         message: `Dev server error: ${error.message}`,
         type: 'stderr',
         appId,
@@ -442,68 +613,137 @@ export class AdvancedAppManager {
 
   // Helper to kill process on a specific port (cross-platform) - always kill in all environments
   private async killProcessOnPort(port: number): Promise<void> {
+    console.log(`[KILL-PORT] ===== STARTING PORT ${port} CLEANUP =====`);
+
     try {
-      if (os.platform() === 'win32') {
-        // Windows: find and kill process on port
-        await new Promise<void>((resolve) => {
-          exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
-            if (error || !stdout) {
-              resolve();
-              return;
-            }
-            
-            const lines = stdout.split('\n');
-            const pids = new Set<string>();
-            
-            for (const line of lines) {
-              const parts = line.trim().split(/\s+/);
-              if (parts.length >= 5 && parts[1].includes(`:${port}`)) {
-                pids.add(parts[4]);
+      // Add timeout to prevent hanging
+      await Promise.race([
+        this.doKillProcessOnPort(port),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Port cleanup timeout')), 10000)
+        )
+      ]);
+      console.log(`[KILL-PORT] ✅ Port ${port} cleanup completed successfully`);
+    } catch (error) {
+      console.warn(`[KILL-PORT] ⚠️ Failed to kill process on port ${port}:`, error);
+      console.warn(`[KILL-PORT] Continuing anyway...`);
+    }
+
+    console.log(`[KILL-PORT] ===== END PORT ${port} CLEANUP =====`);
+  }
+
+  private async doKillProcessOnPort(port: number): Promise<void> {
+    const mainProcessPid = process.pid;
+    console.log(`[KILL-PORT] Main Electron process PID: ${mainProcessPid} (will NOT kill this)`);
+
+    if (os.platform() === 'win32') {
+      console.log(`[KILL-PORT] Windows platform detected, using netstat approach`);
+      // Windows: find and kill process on port
+      await new Promise<void>((resolve) => {
+        console.log(`[KILL-PORT] Executing: netstat -ano | findstr :${port}`);
+        exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+          console.log(`[KILL-PORT] netstat command completed`);
+          console.log(`[KILL-PORT] Error: ${error ? error.message : 'none'}`);
+          console.log(`[KILL-PORT] Stdout: ${stdout ? stdout.substring(0, 200) : 'empty'}`);
+
+          if (error || !stdout) {
+            console.log(`[KILL-PORT] No processes found on port ${port} (Windows)`);
+            resolve();
+            return;
+          }
+
+          const lines = stdout.split('\n');
+          const pids = new Set<string>();
+
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 5 && parts[1].includes(`:${port}`)) {
+              const pid = parts[4];
+              // DON'T kill the main Electron process!
+              if (pid !== mainProcessPid.toString()) {
+                pids.add(pid);
+              } else {
+                console.log(`[KILL-PORT] ⚠️ Skipping main Electron process PID ${pid} to prevent suicide`);
               }
             }
-            
-            if (pids.size === 0) {
-              resolve();
-              return;
-            }
-            
-            const killPromises = Array.from(pids).map(pid => 
-              new Promise<void>((killResolve) => {
-                exec(`taskkill /F /PID ${pid}`, () => killResolve());
-              })
-            );
-            
-            Promise.all(killPromises).then(() => resolve());
+          }
+
+          console.log(`[KILL-PORT] Found ${pids.size} PIDs to kill: ${Array.from(pids).join(', ')}`);
+
+          if (pids.size === 0) {
+            console.log(`[KILL-PORT] No PIDs to kill (after filtering out main process)`);
+            resolve();
+            return;
+          }
+
+          const killPromises = Array.from(pids).map(pid =>
+            new Promise<void>((killResolve) => {
+              console.log(`[KILL-PORT] Killing PID ${pid} with taskkill`);
+              exec(`taskkill /F /PID ${pid}`, (killError) => {
+                console.log(`[KILL-PORT] Kill result for PID ${pid}: ${killError ? killError.message : 'success'}`);
+                killResolve();
+              });
+            })
+          );
+
+          Promise.all(killPromises).then(() => {
+            console.log(`[KILL-PORT] All Windows kill operations completed`);
+            resolve();
           });
         });
-      } else {
-        // Unix: find and kill process on port
-        await new Promise<void>((resolve) => {
-          exec(`lsof -ti tcp:${port}`, (error, stdout) => {
-            if (error || !stdout) {
-              resolve();
-              return;
+      });
+    } else {
+      console.log(`[KILL-PORT] Unix platform detected, using lsof approach`);
+      // Unix: find and kill process on port
+      await new Promise<void>((resolve) => {
+        console.log(`[KILL-PORT] Executing: lsof -ti tcp:${port}`);
+        exec(`lsof -ti tcp:${port}`, (error, stdout) => {
+          console.log(`[KILL-PORT] lsof command completed`);
+          console.log(`[KILL-PORT] Error: ${error ? error.message : 'none'}`);
+          console.log(`[KILL-PORT] Stdout: ${stdout ? stdout.substring(0, 200) : 'empty'}`);
+
+          if (error || !stdout) {
+            console.log(`[KILL-PORT] No processes found on port ${port} (Unix)`);
+            resolve();
+            return;
+          }
+
+          const pids = stdout.trim().split('\n').filter(pid => pid);
+
+          // Filter out the main Electron process to prevent suicide
+          const safePids = pids.filter(pid => {
+            if (pid === mainProcessPid.toString()) {
+              console.log(`[KILL-PORT] ⚠️ Skipping main Electron process PID ${pid} to prevent suicide`);
+              return false;
             }
-            
-            const pids = stdout.trim().split('\n').filter(pid => pid);
-            
-            if (pids.length === 0) {
-              resolve();
-              return;
-            }
-            
-            const killPromises = pids.map(pid => 
-              new Promise<void>((killResolve) => {
-                exec(`kill -9 ${pid}`, () => killResolve());
-              })
-            );
-            
-            Promise.all(killPromises).then(() => resolve());
+            return true;
+          });
+
+          console.log(`[KILL-PORT] Found ${safePids.length} PIDs to kill: ${safePids.join(', ')}`);
+          console.log(`[KILL-PORT] Filtered out ${pids.length - safePids.length} main process PIDs`);
+
+          if (safePids.length === 0) {
+            console.log(`[KILL-PORT] No PIDs to kill (after filtering out main process)`);
+            resolve();
+            return;
+          }
+
+          const killPromises = safePids.map(pid =>
+            new Promise<void>((killResolve) => {
+              console.log(`[KILL-PORT] Killing PID ${pid} with kill -9`);
+              exec(`kill -9 ${pid}`, (killError) => {
+                console.log(`[KILL-PORT] Kill result for PID ${pid}: ${killError ? killError.message : 'success'}`);
+                killResolve();
+              });
+            })
+          );
+
+          Promise.all(killPromises).then(() => {
+            console.log(`[KILL-PORT] All Unix kill operations completed`);
+            resolve();
           });
         });
-      }
-    } catch (error) {
-      console.warn(`Failed to kill process on port ${port}:`, error);
+      });
     }
   }
 
@@ -548,8 +788,8 @@ export class AdvancedAppManager {
       // Remove from running processes map
       this.runningProcesses.delete(appId);
 
-      console.log(`[STOP] Successfully stopped app ${appId}`);
-      this.sendOutput(appId, {
+      console.log(`[STOP] ✅ Successfully stopped app ${appId}`);
+      this.safeSendOutput(appId, {
         message: `Successfully stopped app ${appId}`,
         type: 'stdout',
         appId,
@@ -562,7 +802,7 @@ export class AdvancedAppManager {
       // Attempt cleanup even if an error occurred during the stop process
       this.runningProcesses.delete(appId);
       
-      this.sendOutput(appId, {
+      this.safeSendOutput(appId, {
         message: `Error stopping app ${appId}: ${error.message}`,
         type: 'stderr',
         appId,
@@ -583,14 +823,14 @@ export class AdvancedAppManager {
       
       try {
         await this.removeDirectory(nodeModulesPath);
-        this.sendOutput(appId, {
+        this.safeSendOutput(appId, {
           message: 'Removed node_modules directory',
           type: 'stdout',
           appId,
           timestamp: Date.now()
         });
       } catch (error) {
-        this.sendOutput(appId, {
+        this.safeSendOutput(appId, {
           message: `Warning: Failed to remove node_modules: ${error}`,
           type: 'stderr',
           appId,
@@ -607,53 +847,96 @@ export class AdvancedAppManager {
 
   private async rebuildApp(appId: number, appPath: string): Promise<{ proxyUrl?: string }> {
     console.log(`[REBUILD] Starting rebuild for app ${appId} at path: ${appPath}`);
-    
+
     try {
+      // Step 1: Stop and validate process termination
       console.log(`[REBUILD] Step 1: Stopping current app ${appId}`);
       await this.stopApp(appId);
-      console.log(`[REBUILD] Step 1 completed: App ${appId} stopped successfully`);
 
-      // The actual web app code is in the 'files' subdirectory
+      // Validate process is fully stopped before proceeding
+      console.log(`[REBUILD] Step 1.5: Validating process termination`);
+      let retries = 0;
+      const maxRetries = 5;
+      while (this.isAppRunning(appId) && retries < maxRetries) {
+        console.log(`[REBUILD] Process still running, waiting... (attempt ${retries + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        retries++;
+      }
+
+      if (this.isAppRunning(appId)) {
+        throw new Error(`Failed to stop app ${appId} after ${maxRetries} attempts`);
+      }
+      console.log(`[REBUILD] Step 1 completed: App ${appId} stopped and validated`);
+
+      // Step 2: Force kill any remaining processes on port 32100
+      console.log(`[REBUILD] Step 2: Force killing remaining processes on port 32100`);
+      await this.killProcessOnPort(32100);
+
+      // Additional wait for system cleanup
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Step 3: Remove node_modules with better error handling
       const filesPath = path.join(appPath, 'files');
       const nodeModulesPath = path.join(filesPath, 'node_modules');
-      console.log(`[REBUILD] Step 2: Targeting files path: ${filesPath}`);
-      console.log(`[REBUILD] Step 2: Node modules path: ${nodeModulesPath}`);
-    
-      console.log(`[REBUILD] Step 3: Attempting to remove node_modules directory`);
+      console.log(`[REBUILD] ===== STEP 3: NODE_MODULES CLEANUP =====`);
+      console.log(`[REBUILD] Files path: ${filesPath}`);
+      console.log(`[REBUILD] Node modules path: ${nodeModulesPath}`);
+      console.log(`[REBUILD] Checking if node_modules exists...`);
+
       try {
+        const fs = require('fs').promises;
+        const stats = await fs.stat(nodeModulesPath);
+        console.log(`[REBUILD] node_modules exists, size: ${stats.isDirectory() ? 'directory' : 'file'}`);
+
+        console.log(`[REBUILD] Starting node_modules removal...`);
         await this.removeDirectory(nodeModulesPath);
-        console.log(`[REBUILD] Step 3 completed: node_modules removed successfully`);
-        this.sendOutput(appId, {
+        console.log(`[REBUILD] ✅ node_modules removed successfully`);
+
+        // Safe output send with extra validation
+        this.safeSendOutput(appId, {
           message: 'Removed node_modules directory for rebuild',
           type: 'stdout',
           appId,
           timestamp: Date.now()
         });
       } catch (error) {
-        console.warn(`[REBUILD] Step 3 warning: Failed to remove node_modules:`, error);
-        this.sendOutput(appId, {
-          message: `Warning: Failed to remove node_modules: ${error}`,
+        console.warn(`[REBUILD] ⚠️ Failed to remove node_modules:`, error);
+        console.warn(`[REBUILD] Error type: ${error.constructor.name}`);
+        console.warn(`[REBUILD] Error message: ${error.message}`);
+
+        // Don't fail the rebuild if node_modules removal fails
+        this.safeSendOutput(appId, {
+          message: `Warning: Could not fully clean node_modules: ${error.message}`,
           type: 'stderr',
           appId,
           timestamp: Date.now()
         });
       }
+      console.log(`[REBUILD] ===== END STEP 3 =====`);
 
-      console.log(`[REBUILD] Step 4: Waiting 3 seconds to ensure process termination and file system sync`);
-      // Wait longer to ensure:
-      // 1. Process is fully terminated
-      // 2. File system operations complete  
-      // 3. Vite cache is cleared
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
+      // Step 4: Extended wait for complete cleanup
+      console.log(`[REBUILD] Step 4: Final cleanup wait (5 seconds)`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Step 5: Restart with validation
       console.log(`[REBUILD] Step 5: Starting app ${appId} again`);
       const result = await this.runApp(appId, appPath);
-      console.log(`[REBUILD] Step 5 completed: App ${appId} restarted successfully`);
-      console.log(`[REBUILD] Rebuild process completed successfully for app ${appId}`);
+      console.log(`[REBUILD] Rebuild completed successfully for app ${appId}`);
       return result;
+
     } catch (rebuildError) {
       console.error(`[REBUILD] FATAL ERROR during rebuild of app ${appId}:`, rebuildError);
-      throw rebuildError;
+
+      // Attempt recovery by ensuring clean state
+      try {
+        console.log(`[REBUILD] Attempting recovery cleanup for app ${appId}`);
+        await this.stopApp(appId);
+        await this.killProcessOnPort(32100);
+      } catch (recoveryError) {
+        console.error(`[REBUILD] Recovery cleanup failed:`, recoveryError);
+      }
+
+      throw new Error(`Rebuild failed for app ${appId}: ${rebuildError.message}`);
     }
   }
 

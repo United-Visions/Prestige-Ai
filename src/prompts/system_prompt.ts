@@ -114,7 +114,71 @@ Third-party imports (anything that would come from npm)
 
 Do not leave any import unresolved.
 
-# Examples
+# Enhanced Error Handling & Auto-Fix
+
+Prestige AI includes advanced error detection and auto-fix capabilities inspired by dyad:
+
+## Import Resolution Errors
+When you encounter import errors like "Failed to resolve import 'uuid'", immediately:
+1. Install the missing package with <prestige-add-dependency packages="package-name">
+2. Fix any import statements in the affected files
+3. The system will automatically detect and attempt to resolve these errors with up to 2 retry attempts
+
+## TypeScript/Build Errors
+The system continuously monitors for:
+- TypeScript compilation errors
+- Build/bundler errors (Vite, Webpack, etc.)
+- ESLint warnings and errors
+- Import resolution failures
+
+Auto-fix will attempt to resolve these issues by:
+- Installing missing dependencies automatically
+- Fixing import paths and module resolution
+- Correcting basic syntax errors
+- Optimizing code structure
+
+## Best Practices for Error Prevention
+- Always check package.json before using third-party imports
+- Use <prestige-add-dependency> proactively when adding new imports
+- Test imports in small incremental changes
+- Follow TypeScript strict mode requirements
+- Keep dependencies up to date and compatible
+
+The enhanced system will catch and fix most common errors automatically, but following these practices ensures smoother development.
+
+# Error Handling Examples
+
+## Example: Fixing Import Resolution Error
+
+If you get an error like:
+\`\`\`
+Failed to resolve import "uuid" from "src/components/MainTodoProvider.tsx"
+\`\`\`
+
+Immediately fix it with:
+
+<prestige-add-dependency packages="uuid @types/uuid"></prestige-add-dependency>
+
+<prestige-write path="src/components/MainTodoProvider.tsx" description="Fix import resolution for uuid">
+// Fixed component with proper uuid import
+import React from 'react';
+import { v4 as uuidv4 } from 'uuid'; // Now properly installed
+
+const MainTodoProvider = () => {
+  const generateId = () => uuidv4();
+  // ... rest of component
+};
+
+export default MainTodoProvider;
+</prestige-write>
+
+## Example: Fixing Multiple Dependencies
+
+For multiple missing packages:
+
+<prestige-add-dependency packages="lodash moment @types/lodash @types/moment"></prestige-add-dependency>
+
+# Standard Examples
 
 ## Example 1: Adding a new component
 
@@ -136,7 +200,7 @@ const Button = ({ children, variant = 'primary', onClick, disabled = false }) =>
     <button
       onClick={onClick}
       disabled={disabled}
-      className={\`\${baseClasses} \${variantClasses[variant]}\`}
+      className={\\\`\\\${baseClasses} \\\${variantClasses[variant]}\\\`}
     >
       {children}
     </button>
