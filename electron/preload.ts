@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addMessage: (message: any): Promise<any> => ipcRenderer.invoke('db:add-message', message),
     deleteApp: (appId: number): Promise<void> => ipcRenderer.invoke('db:delete-app', appId),
     deleteConversation: (conversationId: number): Promise<void> => ipcRenderer.invoke('db:delete-conversation', conversationId),
+    deleteMessage: (messageId: number): Promise<void> => ipcRenderer.invoke('db:delete-message', messageId),
     renameApp: (appId: number, newName: string): Promise<void> => ipcRenderer.invoke('db:rename-app', appId, newName),
     createConversation: (conversation: any): Promise<number> => ipcRenderer.invoke('db:create-conversation', conversation),
   },
@@ -172,6 +173,62 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeAllListeners(`terminal:exit:${sessionId}`);
     }
   },
+
+  // OAuth operations
+  oauth: {
+    startServer: (port?: number): Promise<boolean> => 
+      ipcRenderer.invoke('oauth:start-server', port),
+    stopServer: (): Promise<void> => 
+      ipcRenderer.invoke('oauth:stop-server'),
+    openUrl: (url: string): Promise<void> => 
+      ipcRenderer.invoke('oauth:open-url', url),
+    onCallback: (callback: (data: any) => void) => {
+      ipcRenderer.on('oauth:callback', (_event, data) => callback(data));
+    },
+    removeCallbackListener: () => {
+      ipcRenderer.removeAllListeners('oauth:callback');
+    }
+  },
+
+  // GitHub API operations (bypasses CORS)
+  github: {
+    startDeviceFlow: (params: { client_id: string; scope: string }) => 
+      ipcRenderer.invoke('github:device-flow-start', params),
+    pollDeviceFlow: (params: { client_id: string; device_code: string; grant_type: string }) => 
+      ipcRenderer.invoke('github:device-flow-poll', params),
+    apiRequest: (endpoint: string, options?: RequestInit) => 
+      ipcRenderer.invoke('github:api-request', { endpoint, options }),
+  },
+
+  // Git operations
+  git: {
+    init: (repoPath: string) => ipcRenderer.invoke('git:init', repoPath),
+    status: (repoPath: string) => ipcRenderer.invoke('git:status', repoPath),
+    add: (repoPath: string, files: string[]) => ipcRenderer.invoke('git:add', repoPath, files),
+    commit: (repoPath: string, message: string, description?: string) => 
+      ipcRenderer.invoke('git:commit', repoPath, message, description),
+    push: (repoPath: string, remote?: string, branch?: string) => 
+      ipcRenderer.invoke('git:push', repoPath, remote, branch),
+    forcePush: (repoPath: string, remote?: string, branch?: string) => 
+      ipcRenderer.invoke('git:force-push', repoPath, remote, branch),
+    remoteAdd: (repoPath: string, name: string, url: string) => 
+      ipcRenderer.invoke('git:remote-add', repoPath, name, url),
+    remoteList: (repoPath: string) => ipcRenderer.invoke('git:remote-list', repoPath),
+    log: (repoPath: string, limit?: number) => ipcRenderer.invoke('git:log', repoPath, limit),
+    diff: (repoPath: string, file?: string) => ipcRenderer.invoke('git:diff', repoPath, file),
+    clone: (url: string, targetPath: string, name?: string) => 
+      ipcRenderer.invoke('git:clone', url, targetPath, name),
+    // Modern Git API methods for GitStatusService
+    stageFile: (repoPath: string, filePath: string) => ipcRenderer.invoke('git:stageFile', repoPath, filePath),
+    unstageFile: (repoPath: string, filePath: string) => ipcRenderer.invoke('git:unstageFile', repoPath, filePath),
+    stageAll: (repoPath: string) => ipcRenderer.invoke('git:stageAll', repoPath),
+    unstageAll: (repoPath: string) => ipcRenderer.invoke('git:unstageAll', repoPath),
+    getCurrentBranch: (repoPath: string) => ipcRenderer.invoke('git:getCurrentBranch', repoPath),
+    getAheadBehind: (repoPath: string) => ipcRenderer.invoke('git:getAheadBehind', repoPath),
+    getDiff: (repoPath: string, filePath: string, staged?: boolean) => ipcRenderer.invoke('git:getDiff', repoPath, filePath, staged),
+    pull: (repoPath: string) => ipcRenderer.invoke('git:pull', repoPath),
+  },
+
 })
 
 // Type definitions for the exposed API
@@ -232,6 +289,7 @@ declare global {
         addMessage: (message: any) => Promise<any>
         deleteApp: (appId: number) => Promise<void>
         deleteConversation: (conversationId: number) => Promise<void>
+        deleteMessage: (messageId: number) => Promise<void>
         renameApp: (appId: number, newName: string) => Promise<void>
         createConversation: (conversation: any) => Promise<number>
       }
@@ -263,6 +321,40 @@ declare global {
         onData: (sessionId: string, callback: (data: string) => void) => void
         onExit: (sessionId: string, callback: (exitCode: number) => void) => void
         removeListeners: (sessionId: string) => void
+      }
+      oauth: {
+        startServer: (port?: number) => Promise<boolean>
+        stopServer: () => Promise<void>
+        openUrl: (url: string) => Promise<void>
+        onCallback: (callback: (data: any) => void) => void
+        removeCallbackListener: () => void
+      }
+      github: {
+        startDeviceFlow: (params: { client_id: string; scope: string }) => Promise<any>
+        pollDeviceFlow: (params: { client_id: string; device_code: string; grant_type: string }) => Promise<any>
+        apiRequest: (endpoint: string, options?: RequestInit) => Promise<any>
+      }
+      git: {
+        init: (repoPath: string) => Promise<any>
+        status: (repoPath: string) => Promise<any>
+        add: (repoPath: string, files: string[]) => Promise<any>
+        commit: (repoPath: string, message: string, description?: string) => Promise<any>
+        push: (repoPath: string, remote?: string, branch?: string) => Promise<any>
+        forcePush: (repoPath: string, remote?: string, branch?: string) => Promise<any>
+        remoteAdd: (repoPath: string, name: string, url: string) => Promise<any>
+        remoteList: (repoPath: string) => Promise<any>
+        log: (repoPath: string, limit?: number) => Promise<any>
+        diff: (repoPath: string, file?: string) => Promise<any>
+        // Modern Git API methods for GitStatusService
+        stageFile: (repoPath: string, filePath: string) => Promise<any>
+        unstageFile: (repoPath: string, filePath: string) => Promise<any>
+        stageAll: (repoPath: string) => Promise<any>
+        unstageAll: (repoPath: string) => Promise<any>
+        getCurrentBranch: (repoPath: string) => Promise<string>
+        getAheadBehind: (repoPath: string) => Promise<any>
+        getDiff: (repoPath: string, filePath: string, staged?: boolean) => Promise<string>
+        pull: (repoPath: string) => Promise<any>
+        clone: (url: string, targetPath: string, name?: string) => Promise<any>
       }
     }
   }

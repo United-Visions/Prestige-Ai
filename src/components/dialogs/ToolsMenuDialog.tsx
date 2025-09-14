@@ -19,11 +19,12 @@ import {
   Plus,
   ExternalLink,
   GitBranch,
-  Users
+  Users,
 } from 'lucide-react';
 import { GitHubService } from '@/services/githubService';
 import { SupabaseService } from '@/services/supabaseService';
 import { VercelService } from '@/services/vercelService';
+import { gitService } from '@/services/gitService';
 import { IntegrationSetupDialog } from './IntegrationSetupDialog';
 import { CreateRepoDialog } from './CreateRepoDialog';
 
@@ -62,24 +63,39 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
     supabase: { connected: false, loading: true },
     vercel: { connected: false, loading: true },
   });
+  const [repositoryInfo, setRepositoryInfo] = useState<{
+    isGitRepo: boolean;
+    githubRepo?: { owner: string; name: string; url: string };
+    loading: boolean;
+  }>({ isGitRepo: false, loading: true });
 
   // Check connection status on mount
   useEffect(() => {
     if (isOpen) {
       checkConnectionStatus();
+      checkRepositoryStatus();
     }
-  }, [isOpen]);
+  }, [isOpen, currentApp]);
 
   const checkConnectionStatus = async () => {
     // Check GitHub connection
     try {
       const githubService = GitHubService.getInstance();
-      if (githubService.isAuthenticated()) {
+      const isAuthenticated = await githubService.isAuthenticated();
+      if (isAuthenticated) {
         const user = await githubService.getUser();
-        setConnectionStatus(prev => ({
-          ...prev,
-          github: { connected: true, user, loading: false }
-        }));
+        if (user) {
+          setConnectionStatus(prev => ({
+            ...prev,
+            github: { connected: true, user, loading: false }
+          }));
+        } else {
+          // If we can't get user info, the token is likely invalid
+          setConnectionStatus(prev => ({
+            ...prev,
+            github: { connected: false, loading: false }
+          }));
+        }
       } else {
         setConnectionStatus(prev => ({
           ...prev,
@@ -87,6 +103,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
         }));
       }
     } catch (error) {
+      console.error('Error checking GitHub connection:', error);
       setConnectionStatus(prev => ({
         ...prev,
         github: { connected: false, loading: false }
@@ -166,11 +183,38 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
     }
   };
 
+  const checkRepositoryStatus = async () => {
+    if (!currentApp) {
+      setRepositoryInfo({ isGitRepo: false, loading: false });
+      return;
+    }
+
+    try {
+      // Get app directory path
+      let appPath = currentApp.path;
+      if (!appPath) {
+        const desktop = await window.electronAPI.app.getDesktopPath();
+        appPath = await window.electronAPI.path.join(desktop, 'prestige-ai', currentApp.name);
+      }
+
+      const repoInfo = await gitService.getRepositoryInfo(appPath);
+      setRepositoryInfo({
+        isGitRepo: repoInfo.isGitRepo,
+        githubRepo: repoInfo.githubRepo,
+        loading: false
+      });
+    } catch (error) {
+      console.error('Failed to check repository status:', error);
+      setRepositoryInfo({ isGitRepo: false, loading: false });
+    }
+  };
+
   const handleSetupSuccess = () => {
     setSetupDialogOpen(false);
     // Refresh connection status after successful setup
     setTimeout(() => {
       checkConnectionStatus();
+      checkRepositoryStatus();
     }, 1000);
   };
 
@@ -181,6 +225,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
       handleConnect('github');
     }
   };
+
 
   const renderConnectionCard = (
     provider: 'github' | 'supabase' | 'vercel',
@@ -224,7 +269,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
 
         {status.connected && (
           <div className="mt-3 pt-3 border-t border-gray-200">
-            {provider === 'github' && status.user && (
+            {provider === 'github' && status.connected && 'user' in status && status.user && (
               <div className="flex items-center justify-between">
                 <div className="text-sm">
                   <p className="font-medium">{status.user.name || status.user.username}</p>
@@ -240,7 +285,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
               </div>
             )}
             
-            {provider === 'supabase' && status.projects && (
+            {provider === 'supabase' && status.connected && 'projects' in status && status.projects && (
               <div className="flex items-center justify-between">
                 <div className="text-sm">
                   <p className="font-medium">{status.projects.length} projects available</p>
@@ -255,11 +300,11 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
               </div>
             )}
             
-            {provider === 'vercel' && status.user && (
+            {provider === 'vercel' && status.connected && 'user' in status && status.user && (
               <div className="flex items-center justify-between">
                 <div className="text-sm">
                   <p className="font-medium">{status.user.name || status.user.username}</p>
-                  <p className="text-gray-500">{status.projects?.length || 0} projects</p>
+                  <p className="text-gray-500">{'projects' in status ? status.projects?.length || 0 : 0} projects</p>
                 </div>
                 <Button
                   variant="outline"
@@ -302,26 +347,60 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
           </Alert>
 
           <div className="grid grid-cols-1 gap-3">
-            <Button
-              onClick={handleCreateRepo}
-              className="justify-start h-auto p-4"
-              variant="outline"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-gray-100">
-                  <GitBranch className="w-5 h-5 text-gray-600" />
-                </div>
-                <div className="text-left">
-                  <div className="font-semibold">Create GitHub Repository</div>
-                  <div className="text-sm text-gray-600">
-                    {connectionStatus.github.connected 
-                      ? "Create a new repo and sync your current app"
-                      : "Connect GitHub first to create repositories"}
+            {repositoryInfo.loading ? (
+              <Button className="justify-start h-auto p-4" variant="outline" disabled>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-gray-100">
+                    <GitBranch className="w-5 h-5 text-gray-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold">Checking Repository...</div>
+                    <div className="text-sm text-gray-600">Loading repository status</div>
                   </div>
                 </div>
-              </div>
-              <ExternalLink className="w-4 h-4 ml-auto" />
-            </Button>
+              </Button>
+            ) : repositoryInfo.githubRepo ? (
+              <Button
+                onClick={() => window.open(repositoryInfo.githubRepo!.url, '_blank')}
+                className="justify-start h-auto p-4 border-green-200 bg-green-50 hover:bg-green-100"
+                variant="outline"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-green-100">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold text-green-800">Connected to GitHub</div>
+                    <div className="text-sm text-green-600">
+                      {repositoryInfo.githubRepo.owner}/{repositoryInfo.githubRepo.name}
+                    </div>
+                  </div>
+                </div>
+                <ExternalLink className="w-4 h-4 ml-auto text-green-600" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleCreateRepo}
+                className="justify-start h-auto p-4"
+                variant="outline"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-gray-100">
+                    <GitBranch className="w-5 h-5 text-gray-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold">Create GitHub Repository</div>
+                    <div className="text-sm text-gray-600">
+                      {connectionStatus.github.connected 
+                        ? "Create a new repo and sync your current app"
+                        : "Connect GitHub first to create repositories"}
+                    </div>
+                  </div>
+                </div>
+                <ExternalLink className="w-4 h-4 ml-auto" />
+              </Button>
+            )}
+
 
             <Button
               className="justify-start h-auto p-4"
@@ -468,6 +547,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
         onSuccess={() => {
           setCreateRepoDialogOpen(false);
           checkConnectionStatus();
+          checkRepositoryStatus();
         }}
       />
     </>

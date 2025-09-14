@@ -4,6 +4,7 @@ const { ensureFile, rename, remove, writeFile } = fs;
 import useAppStore from '@/stores/appStore';
 import { showSuccess, showError } from '@/utils/toast';
 import { resolveAppPaths } from '@/utils/appPathResolver';
+import AppStateManager from '@/services/appStateManager';
 
 interface FileOperation {
   type: 'write' | 'rename' | 'delete';
@@ -91,6 +92,9 @@ export async function processAgentResponse(response: string) {
   // Resolve files directory path centrally
   const { filesPath: appPath } = await resolveAppPaths(currentApp);
 
+  // Get AppStateManager to update virtual filesystem
+  const appStateManager = AppStateManager.getInstance();
+
   let hasFileOperations = false;
 
   for (const op of operations) {
@@ -101,6 +105,16 @@ export async function processAgentResponse(response: string) {
             const filePath = await path.join(appPath, op.path);
             await ensureFile(filePath);
             await writeFile(filePath, op.content);
+            
+            // Update virtual filesystem to track this change
+            try {
+              const vfs = await appStateManager.getVirtualFileSystem(currentApp);
+              await vfs.writeFile(op.path, op.content);
+              console.log(`✅ Updated virtual filesystem for: ${op.path}`);
+            } catch (vfsError) {
+              console.warn(`Failed to update virtual filesystem for ${op.path}:`, vfsError);
+            }
+            
             showSuccess(`File written: ${op.path}`);
             hasFileOperations = true;
           } else {
@@ -112,12 +126,32 @@ export async function processAgentResponse(response: string) {
           const oldPath = await path.join(appPath, op.path);
           const newPath = await path.join(appPath, op.newPath!);
           await rename(oldPath, newPath!);
+          
+          // Update virtual filesystem to track this change
+          try {
+            const vfs = await appStateManager.getVirtualFileSystem(currentApp);
+            await vfs.renameFile(op.path, op.newPath!);
+            console.log(`✅ Updated virtual filesystem rename: ${op.path} -> ${op.newPath}`);
+          } catch (vfsError) {
+            console.warn(`Failed to update virtual filesystem for rename ${op.path}:`, vfsError);
+          }
+          
           showSuccess(`File renamed: ${op.path} to ${op.newPath}`);
           hasFileOperations = true;
           break;
         case 'delete':
           const deletePath = await path.join(appPath, op.path);
           await remove(deletePath);
+          
+          // Update virtual filesystem to track this change
+          try {
+            const vfs = await appStateManager.getVirtualFileSystem(currentApp);
+            await vfs.deleteFile(op.path);
+            console.log(`✅ Updated virtual filesystem delete: ${op.path}`);
+          } catch (vfsError) {
+            console.warn(`Failed to update virtual filesystem for delete ${op.path}:`, vfsError);
+          }
+          
           showSuccess(`File deleted: ${op.path}`);
           hasFileOperations = true;
           break;

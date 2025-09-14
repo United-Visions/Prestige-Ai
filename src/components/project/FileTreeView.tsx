@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import type { FileNode } from '@/types';
-import { ChevronRight, ChevronDown, File, Folder, Download, Loader } from 'lucide-react';
+import { ChevronRight, ChevronDown, File, Folder, Download, Loader, Plus, Minus, X } from 'lucide-react';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { FileSystemService } from '@/services/fileSystemService';
 import { resolveAppPaths } from '@/utils/appPathResolver';
 import useAppStore from '@/stores/appStore';
+import { GitStatusService, type GitStatus, type GitFileStatus } from '@/services/gitStatusService';
 
 interface FileTreeViewProps {
   files: FileNode[];
@@ -14,13 +15,51 @@ interface FileTreeViewProps {
 interface FileItemProps {
   node: FileNode;
   depth: number;
+  gitStatusMap: Map<string, GitFileStatus>;
 }
 
-function FileItem({ node, depth }: FileItemProps) {
+function FileItem({ node, depth, gitStatusMap }: FileItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { showCodeViewer } = useCodeViewerStore();
   const { currentApp } = useAppStore();
+  const gitStatus = gitStatusMap.get(node.path);
+
+  const getGitStatusIcon = (status?: GitFileStatus['status']) => {
+    if (!status) return null;
+    
+    switch (status) {
+      case 'modified':
+        return <div className="w-1.5 h-1.5 rounded-full bg-yellow-500"></div>;
+      case 'added':
+      case 'untracked':
+        return <Plus className="w-3 h-3 text-green-500" />;
+      case 'deleted':
+        return <Minus className="w-3 h-3 text-red-500" />;
+      case 'staged':
+        return <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>;
+      default:
+        return null;
+    }
+  };
+
+  const getGitStatusColor = (status?: GitFileStatus['status']) => {
+    if (!status) return '';
+    
+    switch (status) {
+      case 'modified':
+        return 'text-yellow-600';
+      case 'added':
+      case 'untracked':
+        return 'text-green-600';
+      case 'deleted':
+        return 'text-red-600 line-through';
+      case 'staged':
+        return 'text-green-700';
+      default:
+        return '';
+    }
+  };
 
   const handleToggle = async () => {
     if (node.type === 'directory') {
@@ -103,7 +142,7 @@ function FileItem({ node, depth }: FileItemProps) {
         
         <span className={`flex-1 text-sm font-medium transition-colors duration-200 ${
           node.type === 'file' 
-            ? 'text-gray-700 group-hover:text-prestige-primary' 
+            ? gitStatus?.status ? getGitStatusColor(gitStatus.status) : 'text-gray-700 group-hover:text-prestige-primary'
             : 'text-gray-800 group-hover:text-blue-700'
         }`}>
           {node.name}
@@ -116,8 +155,15 @@ function FileItem({ node, depth }: FileItemProps) {
         )}
         
         {node.type === 'file' && !isLoading && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-prestige-primary to-prestige-secondary"></div>
+          <div className="flex items-center gap-1">
+            {gitStatus?.status && (
+              <div className="w-4 h-4 flex items-center justify-center">
+                {getGitStatusIcon(gitStatus.status)}
+              </div>
+            )}
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-prestige-primary to-prestige-secondary"></div>
+            </div>
           </div>
         )}
       </div>
@@ -125,7 +171,7 @@ function FileItem({ node, depth }: FileItemProps) {
       {node.type === 'directory' && isExpanded && node.children && (
         <div className="ml-2 border-l border-gray-200/50 pl-2">
           {node.children.map((child) => (
-            <FileItem key={child.path} node={child} depth={depth + 1} />
+            <FileItem key={child.path} node={child} depth={depth + 1} gitStatusMap={gitStatusMap} />
           ))}
         </div>
       )}
@@ -134,6 +180,45 @@ function FileItem({ node, depth }: FileItemProps) {
 }
 
 export function FileTreeView({ files }: FileTreeViewProps) {
+  const { currentApp } = useAppStore();
+  const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitFileStatus>>(new Map());
+  const gitService = GitStatusService.getInstance();
+
+  useEffect(() => {
+    const loadGitStatus = async () => {
+      if (!currentApp?.path) return;
+      
+      try {
+        const gitStatus = await gitService.getStatus(currentApp.path);
+        const statusMap = new Map<string, GitFileStatus>();
+        
+        gitStatus.files.forEach(file => {
+          statusMap.set(file.path, file);
+        });
+        
+        setGitStatusMap(statusMap);
+      } catch (error) {
+        console.error('Failed to load git status for file tree:', error);
+      }
+    };
+
+    if (currentApp?.path) {
+      loadGitStatus();
+      
+      // Set up watcher for git status changes
+      gitService.startWatching(currentApp.path, (status) => {
+        const statusMap = new Map<string, GitFileStatus>();
+        status.files.forEach(file => {
+          statusMap.set(file.path, file);
+        });
+        setGitStatusMap(statusMap);
+      });
+      
+      return () => {
+        gitService.stopWatching(currentApp.path);
+      };
+    }
+  }, [currentApp]);
   const handleDownloadAll = () => {
     // Create a zip-like structure (simplified)
     const allFiles = flattenFiles(files);
@@ -198,7 +283,7 @@ export function FileTreeView({ files }: FileTreeViewProps) {
       
       <div className="space-y-0.5">
         {files.map((file) => (
-          <FileItem key={file.path} node={file} depth={0} />
+          <FileItem key={file.path} node={file} depth={0} gitStatusMap={gitStatusMap} />
         ))}
       </div>
     </div>

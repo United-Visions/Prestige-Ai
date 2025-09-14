@@ -55,6 +55,8 @@ export class GitHubService {
   private constructor() {
     // Load stored tokens on initialization
     this.initializeFromStorage();
+    // Auto-check authentication status on app start
+    this.checkAuthenticationStatus();
   }
 
   private async initializeFromStorage(): Promise<void> {
@@ -65,9 +67,18 @@ export class GitHubService {
         if (storedTokens.metadata?.user) {
           this.user = storedTokens.metadata.user;
         }
+        console.log('GitHub tokens loaded from storage');
+      } else {
+        console.log('No GitHub tokens found in storage');
       }
     } catch (error) {
       console.warn('Failed to load GitHub tokens from storage:', error);
+      // Clear potentially corrupted tokens
+      try {
+        await tokenStorageService.removeTokens('github');
+      } catch (clearError) {
+        console.warn('Failed to clear corrupted GitHub tokens:', clearError);
+      }
     }
   }
 
@@ -119,7 +130,53 @@ export class GitHubService {
   }
 
   /**
+   * Check authentication status on startup
+   */
+  private async checkAuthenticationStatus(): Promise<void> {
+    try {
+      // Wait a moment for initialization to complete
+      setTimeout(async () => {
+        if (this.accessToken) {
+          const isValid = await this.isAuthenticated();
+          if (isValid) {
+            console.log('✅ GitHub authentication restored from storage');
+            // Dispatch event to notify UI
+            window.dispatchEvent(new CustomEvent('githubAuthRestored', {
+              detail: { user: this.user }
+            }));
+          } else {
+            console.log('❌ Stored GitHub tokens are invalid');
+            await this.clearAuthentication();
+          }
+        }
+      }, 1000);
+    } catch (error) {
+      console.warn('Failed to check GitHub authentication status:', error);
+    }
+  }
+
+  /**
+   * Check if we're running in Electron
+   */
+  private isElectron(): boolean {
+    // Check multiple conditions to ensure we're in Electron
+    const hasElectronAPI = typeof window !== 'undefined' && (window as any).electronAPI;
+    const hasProcess = typeof window !== 'undefined' && window.process?.type === 'renderer';
+    const isElectron = hasElectronAPI || hasProcess;
+    
+    console.log('Electron detection:', {
+      hasElectronAPI: !!hasElectronAPI,
+      hasProcess,
+      githubAPI: !!(window as any).electronAPI?.github,
+      isElectron
+    });
+    
+    return isElectron;
+  }
+
+  /**
    * Start GitHub Device Flow authentication
+   * Uses Electron's main process if available, otherwise falls back to browser OAuth
    */
   async startDeviceFlow(): Promise<{
     userCode: string;
@@ -127,6 +184,40 @@ export class GitHubService {
     interval: number;
   }> {
     try {
+      const isElectronEnv = this.isElectron();
+      const hasGithubAPI = !!(window as any).electronAPI?.github?.startDeviceFlow;
+      
+      console.log('Device flow attempt:', {
+        isElectronEnv,
+        hasGithubAPI,
+        electronAPI: !!(window as any).electronAPI,
+        github: !!(window as any).electronAPI?.github
+      });
+      
+      // If we're in Electron, use the main process to avoid CORS
+      if (isElectronEnv && hasGithubAPI) {
+        const result = await (window as any).electronAPI.github.startDeviceFlow({
+          client_id: GITHUB_CLIENT_ID,
+          scope: GITHUB_SCOPES,
+        });
+
+        currentFlowState = {
+          deviceCode: result.device_code,
+          userCode: result.user_code,
+          verificationUri: result.verification_uri,
+          interval: result.interval,
+          isPolling: false,
+          timeoutId: null,
+        };
+
+        return {
+          userCode: result.user_code,
+          verificationUri: result.verification_uri,
+          interval: result.interval,
+        };
+      }
+
+      // Fallback: try direct fetch (will likely fail due to CORS in browser)
       const response = await fetch(GITHUB_DEVICE_CODE_URL, {
         method: "POST",
         headers: {
@@ -161,7 +252,12 @@ export class GitHubService {
       };
     } catch (error) {
       console.error("Failed to start GitHub device flow:", error);
-      throw error;
+      
+      throw new Error(
+        "GitHub Device Flow failed due to CORS restrictions. " +
+        "Please ensure you're running the Electron app to enable GitHub integration. " +
+        "Original error: " + (error as Error).message
+      );
     }
   }
 
@@ -183,50 +279,101 @@ export class GitHubService {
         }
 
         try {
-          const response = await fetch(GITHUB_ACCESS_TOKEN_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({
+          let response: any;
+          let data: any;
+
+          // Use Electron API if available, otherwise fall back to direct fetch
+          if (this.isElectron() && (window as any).electronAPI?.github?.pollDeviceFlow) {
+            const result = await (window as any).electronAPI.github.pollDeviceFlow({
               client_id: GITHUB_CLIENT_ID,
               device_code: currentFlowState.deviceCode,
               grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-            }),
-          });
-
-          const data = await response.json();
+            });
+            response = { ok: result.ok };
+            data = result.data;
+          } else {
+            // Fallback to direct fetch (may fail due to CORS)
+            const fetchResponse = await fetch(GITHUB_ACCESS_TOKEN_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify({
+                client_id: GITHUB_CLIENT_ID,
+                device_code: currentFlowState.deviceCode,
+                grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+              }),
+            });
+            response = fetchResponse;
+            data = await fetchResponse.json();
+          }
 
           if (response.ok && data.access_token) {
             // Get user info before resolving
             try {
-              const userResponse = await fetch(`${GITHUB_API_BASE}/user`, {
-                headers: {
-                  Authorization: `Bearer ${data.access_token}`,
-                  Accept: "application/vnd.github.v3+json",
-                },
-              });
+              let userData: any = null;
+              let primaryEmail: string = '';
 
-              if (userResponse.ok) {
-                const userData = await userResponse.json();
-                
-                // Get primary email
-                const emailResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+              if (this.isElectron() && (window as any).electronAPI?.github?.apiRequest) {
+                // Use Electron API for user info
+                const userResult = await (window as any).electronAPI.github.apiRequest('/user', {
+                  headers: {
+                    Authorization: `Bearer ${data.access_token}`,
+                  },
+                });
+
+                if (userResult.ok) {
+                  userData = userResult.data;
+                  
+                  // Get primary email
+                  const emailResult = await (window as any).electronAPI.github.apiRequest('/user/emails', {
+                    headers: {
+                      Authorization: `Bearer ${data.access_token}`,
+                    },
+                  });
+
+                  primaryEmail = userData.email;
+                  if (emailResult.ok) {
+                    const emails = emailResult.data;
+                    const primaryEmailObj = emails.find((email: any) => email.primary);
+                    if (primaryEmailObj) {
+                      primaryEmail = primaryEmailObj.email;
+                    }
+                  }
+                }
+              } else {
+                // Fallback to direct fetch
+                const userResponse = await fetch(`${GITHUB_API_BASE}/user`, {
                   headers: {
                     Authorization: `Bearer ${data.access_token}`,
                     Accept: "application/vnd.github.v3+json",
                   },
                 });
 
-                let primaryEmail = userData.email;
-                if (emailResponse.ok) {
-                  const emails = await emailResponse.json();
-                  const primaryEmailObj = emails.find((email: any) => email.primary);
-                  if (primaryEmailObj) {
-                    primaryEmail = primaryEmailObj.email;
+                if (userResponse.ok) {
+                  userData = await userResponse.json();
+                  
+                  // Get primary email
+                  const emailResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+                    headers: {
+                      Authorization: `Bearer ${data.access_token}`,
+                      Accept: "application/vnd.github.v3+json",
+                    },
+                  });
+
+                  primaryEmail = userData.email;
+                  if (emailResponse.ok) {
+                    const emails = await emailResponse.json();
+                    const primaryEmailObj = emails.find((email: any) => email.primary);
+                    if (primaryEmailObj) {
+                      primaryEmail = primaryEmailObj.email;
+                    }
                   }
                 }
+              }
+
+              if (userData) {
 
                 const user: GitHubUser = {
                   email: primaryEmail || '',
@@ -314,33 +461,68 @@ export class GitHubService {
     }
 
     try {
-      const response = await fetch(`${GITHUB_API_BASE}/user`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      });
+      let userData: any;
+      let primaryEmail: string;
 
-      if (!response.ok) {
-        throw new Error(`Failed to get user: ${response.statusText}`);
-      }
+      if (this.isElectron() && (window as any).electronAPI?.github?.apiRequest) {
+        // Use Electron API
+        const userResult = await (window as any).electronAPI.github.apiRequest('/user', {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
 
-      const userData = await response.json();
+        if (!userResult.ok) {
+          throw new Error(`Failed to get user: ${userResult.statusText || 'API request failed'}`);
+        }
 
-      // Get primary email
-      const emailResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      });
+        userData = userResult.data;
 
-      let primaryEmail = userData.email;
-      if (emailResponse.ok) {
-        const emails = await emailResponse.json();
-        const primaryEmailObj = emails.find((email: any) => email.primary);
-        if (primaryEmailObj) {
-          primaryEmail = primaryEmailObj.email;
+        // Get primary email
+        const emailResult = await (window as any).electronAPI.github.apiRequest('/user/emails', {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
+
+        primaryEmail = userData.email;
+        if (emailResult.ok) {
+          const emails = emailResult.data;
+          const primaryEmailObj = emails.find((email: any) => email.primary);
+          if (primaryEmailObj) {
+            primaryEmail = primaryEmailObj.email;
+          }
+        }
+      } else {
+        // Fallback to direct fetch
+        const response = await fetch(`${GITHUB_API_BASE}/user`, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to get user: ${response.statusText}`);
+        }
+
+        userData = await response.json();
+
+        // Get primary email
+        const emailResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+        });
+
+        primaryEmail = userData.email;
+        if (emailResponse.ok) {
+          const emails = await emailResponse.json();
+          const primaryEmailObj = emails.find((email: any) => email.primary);
+          if (primaryEmailObj) {
+            primaryEmail = primaryEmailObj.email;
+          }
         }
       }
 
@@ -370,18 +552,36 @@ export class GitHubService {
     }
 
     try {
-      const response = await fetch(`${GITHUB_API_BASE}/user/repos?sort=updated&per_page=100`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      });
+      let repos: any[];
 
-      if (!response.ok) {
-        throw new Error(`Failed to get repositories: ${response.statusText}`);
+      if (this.isElectron() && (window as any).electronAPI?.github?.apiRequest) {
+        // Use Electron API
+        const result = await (window as any).electronAPI.github.apiRequest('/user/repos?sort=updated&per_page=100', {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
+
+        if (!result.ok) {
+          throw new Error(`Failed to get repositories: ${result.statusText || 'API request failed'}`);
+        }
+
+        repos = result.data;
+      } else {
+        // Fallback to direct fetch
+        const response = await fetch(`${GITHUB_API_BASE}/user/repos?sort=updated&per_page=100`, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to get repositories: ${response.statusText}`);
+        }
+
+        repos = await response.json();
       }
-
-      const repos = await response.json();
 
       return repos.map((repo: any) => ({
         name: repo.name,
@@ -411,27 +611,53 @@ export class GitHubService {
     }
 
     try {
-      const response = await fetch(`${GITHUB_API_BASE}/user/repos`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          description: options.description || '',
-          private: options.private || false,
-          auto_init: options.autoInit || true,
-        }),
-      });
+      let repo: any;
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`Failed to create repository: ${error.message || response.statusText}`);
+      if (this.isElectron() && (window as any).electronAPI?.github?.apiRequest) {
+        // Use Electron API
+        const result = await (window as any).electronAPI.github.apiRequest('/user/repos', {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            description: options.description || '',
+            private: options.private || false,
+            auto_init: options.autoInit || false,
+          }),
+        });
+
+        if (!result.ok) {
+          throw new Error(`Failed to create repository: ${result.data.message || result.statusText || 'API request failed'}`);
+        }
+
+        repo = result.data;
+      } else {
+        // Fallback to direct fetch
+        const response = await fetch(`${GITHUB_API_BASE}/user/repos`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            description: options.description || '',
+            private: options.private || false,
+            auto_init: options.autoInit || false,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`Failed to create repository: ${error.message || response.statusText}`);
+        }
+
+        repo = await response.json();
       }
-
-      const repo = await response.json();
 
       return {
         name: repo.name,
@@ -485,7 +711,7 @@ export class GitHubService {
    * Authenticate with device flow (alias for startDeviceFlow)
    */
   async authenticateWithDeviceFlow(): Promise<string> {
-    const deviceFlow = await this.startDeviceFlow();
+    await this.startDeviceFlow();
     return this.startPolling();
   }
 
@@ -494,6 +720,22 @@ export class GitHubService {
    */
   clearAuth() {
     this.logout();
+  }
+
+  /**
+   * Clear authentication with UI notification
+   */
+  async clearAuthentication() {
+    this.accessToken = null;
+    this.user = null;
+    
+    // Clear from storage
+    await tokenStorageService.removeTokens('github');
+    
+    // Dispatch event to notify UI
+    window.dispatchEvent(new CustomEvent('githubAuthCleared'));
+    
+    console.log('GitHub authentication cleared');
   }
 
   /**
@@ -507,6 +749,22 @@ export class GitHubService {
     // Clear stored tokens
     try {
       await tokenStorageService.removeTokens('github');
+    } catch (error) {
+      console.warn('Failed to clear GitHub tokens from storage:', error);
+    }
+  }
+
+  /**
+   * Clear all stored authentication data (for testing/debugging)
+   */
+  async clearStoredAuth(): Promise<void> {
+    this.accessToken = null;
+    this.user = null;
+    this.stopPolling();
+    
+    try {
+      await tokenStorageService.removeTokens('github');
+      console.log('GitHub authentication cleared');
     } catch (error) {
       console.warn('Failed to clear GitHub tokens from storage:', error);
     }

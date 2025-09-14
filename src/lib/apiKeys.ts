@@ -224,8 +224,13 @@ export const useApiKeyStore = create<ApiKeyStore>()(
             const status = state.apiKeyStatuses[provider as ModelProvider];
             const providerType = provider as ModelProvider;
             
-            // Local providers are always available
-            if (providerType === 'ollama' || providerType === 'lmstudio') {
+            // Skip disabled Ollama provider
+            if (providerType === 'ollama') {
+              return false;
+            }
+            
+            // LM Studio is still available
+            if (providerType === 'lmstudio') {
               return true;
             }
             
@@ -240,8 +245,8 @@ export const useApiKeyStore = create<ApiKeyStore>()(
       getRecommendedModel: () => {
         const availableProviders = get().getAvailableProviders();
         
-        // Priority order for recommendations
-        const providerPriority: ModelProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'ollama', 'lmstudio', 'auto'];
+        // Priority order for recommendations (excluding disabled Ollama)
+        const providerPriority: ModelProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'lmstudio', 'auto'];
         
         for (const provider of providerPriority) {
           if (availableProviders.includes(provider)) {
@@ -252,12 +257,7 @@ export const useApiKeyStore = create<ApiKeyStore>()(
           }
         }
         
-        // If no keys are available, return a local model as default
-        const ollamaModels = getModelsByProvider('ollama');
-        if (ollamaModels.length > 0) {
-          return ollamaModels[0];
-        }
-        
+        // If no keys are available, return null (no fallback to disabled Ollama)
         return null;
       },
     }),

@@ -6,6 +6,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { resolveAppPaths } from '@/utils/appPathResolver';
 import { AsyncVirtualFileSystem, VirtualChanges, type VirtualFile } from '@/shared/VirtualFilesystem';
 import AppStateManager from '@/services/appStateManager';
+import { GitStatusService } from '@/services/gitStatusService';
 
 interface FileOperation {
   type: 'write' | 'rename' | 'delete';
@@ -176,6 +177,12 @@ export async function processContinuousAgentResponse(response: string) {
       
       // Now synchronize virtual changes to actual filesystem using state manager
       await stateManager.syncAppToDisk(currentApp);
+      
+      // Trigger git status refresh after AI file changes
+      if (hasFileOperations && currentApp?.path) {
+        const gitService = GitStatusService.getInstance();
+        await gitService.onFileChanged(currentApp.path, 'multiple files');
+      }
       
       showSuccess(`Applied ${operations.filter(op => ['write', 'rename', 'delete'].includes(op.type)).length} file changes`);
       

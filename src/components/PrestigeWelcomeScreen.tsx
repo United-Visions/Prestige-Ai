@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TemplateSelector } from '@/components/TemplateSelector';
 import { DEFAULT_TEMPLATE_ID, getTemplateById } from '@/templates';
 import { ToolsMenuDialog } from '@/components/dialogs/ToolsMenuDialog';
+import { ConnectRepoDialog } from '@/components/dialogs/ConnectRepoDialog';
 import { tokenStorageService } from '@/services/tokenStorageService';
 import { 
   Crown,
@@ -23,7 +24,9 @@ import {
   Globe,
   CheckCircle,
   Settings,
-  Users
+  Users,
+  GitMerge,
+  FolderGit2
 } from 'lucide-react';
 
 interface PrestigeWelcomeScreenProps {
@@ -40,6 +43,7 @@ export function PrestigeWelcomeScreen({
   onCreateWithTemplate
 }: PrestigeWelcomeScreenProps) {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [connectRepoDialogOpen, setConnectRepoDialogOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState({
     github: false,
     supabase: false,
@@ -310,6 +314,50 @@ export function PrestigeWelcomeScreen({
           )}
         </div>
 
+        {/* Import Existing Repository Section - Only show when GitHub is connected */}
+        {connectionStatus.github && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <h2 className="text-xl font-semibold mb-2">Import Existing Project</h2>
+              <p className="text-muted-foreground text-sm">
+                Import an existing GitHub repository to continue working on it
+              </p>
+            </div>
+            
+            <div className="flex justify-center">
+              <Card 
+                className="w-96 cursor-pointer border-2 border-blue-200 hover:border-blue-400 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:shadow-lg group"
+                onClick={() => setConnectRepoDialogOpen(true)}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
+                      <GitMerge className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <h3 className="font-semibold text-lg text-gray-800">
+                        Connect Existing Repository
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Import and work on your existing GitHub projects
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                          <Github className="w-3 h-3 mr-1" />
+                          GitHub Ready
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="text-blue-600 group-hover:text-blue-700">
+                      <ArrowRight className="w-5 h-5" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
         {/* Template Selection */}
         <div className="space-y-6">
           <div className="text-center">
@@ -424,6 +472,17 @@ export function PrestigeWelcomeScreen({
         isOpen={toolsMenuOpen}
         onClose={() => setToolsMenuOpen(false)}
         currentApp={null}
+      />
+
+      {/* Connect Repository Dialog */}
+      <ConnectRepoDialog
+        isOpen={connectRepoDialogOpen}
+        onClose={() => setConnectRepoDialogOpen(false)}
+        currentApp={null}
+        onSuccess={() => {
+          setConnectRepoDialogOpen(false);
+          // Optionally refresh the page or navigate to the new project
+        }}
       />
     </div>
   );

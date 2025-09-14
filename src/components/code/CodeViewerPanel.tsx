@@ -3,10 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import useAppStore from '@/stores/appStore';
-import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Folder, Edit3, Save, XCircle, Wand2, FileCode, Wrench, MessageCircle } from 'lucide-react';
+import { X, Copy, Download, ChevronDown, ChevronUp, Code2, Play, RotateCcw, Square, RefreshCw, Terminal, Hammer, AlertTriangle, Folder, Edit3, Save, XCircle, Wand2, FileCode, Wrench, MessageCircle, GitBranch, GitCommit, History, Plus } from 'lucide-react';
 import { showToast } from '@/utils/toast';
 import { PreviewIframe } from '@/components/preview/PreviewIframe';
 import { FileTreeView } from '@/components/project/FileTreeView';
+import { SourceControlPanel } from '@/components/source-control/SourceControlPanel';
+import { DiffViewer } from '@/components/diff/DiffViewer';
 import { AppError, AppOutput } from '@/types/appTypes';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
 import { useAiderStore } from '@/stores/aiderStore';
@@ -14,6 +16,7 @@ import { ErrorDetectionService, type ErrorReport } from '@/services/errorDetecti
 import { ErrorFixDialog } from '@/components/ErrorFixDialog';
 import { useApiKeyStore, getModelAvailability } from '@/lib/apiKeys';
 import { useModelPreferencesStore } from '@/stores/modelPreferencesStore';
+import { GitStatusService } from '@/services/gitStatusService';
 
 interface CodeViewerPanelProps {
   className?: string;
@@ -29,6 +32,10 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     showFileTree,
     setShowFileTree
   } = useCodeViewerStore();
+
+  const [showSourceControl, setShowSourceControl] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [fileDiff, setFileDiff] = useState<string>('');
 
   const { currentApp, selectedModel, currentConversation } = useAppStore();
 
@@ -60,17 +67,47 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
 
   const appService = AdvancedAppManagementService.getInstance();
   const errorService = ErrorDetectionService.getInstance();
+  const gitService = GitStatusService.getInstance();
 
-  // Check if we have valid API keys for the current selected model
+  // API key check cache to reduce frequency
+  const [apiKeyCache, setApiKeyCache] = useState<{
+    timestamp: number;
+    modelKey: string;
+    result: boolean;
+  } | null>(null);
+
+  // Check if we have valid API keys for the current selected model (throttled)
   const hasValidApiKey = () => {
     if (!selectedModel) return false;
     
+    const currentModelKey = `${selectedModel.name}-${selectedModel.provider}`;
+    const now = Date.now();
+    const TEN_MINUTES = 10 * 60 * 1000; // 10 minutes in milliseconds
+    
+    // Return cached result if it's less than 10 minutes old and for the same model
+    if (apiKeyCache && 
+        apiKeyCache.modelKey === currentModelKey && 
+        (now - apiKeyCache.timestamp) < TEN_MINUTES) {
+      return apiKeyCache.result;
+    }
+    
     // Use the same logic as Enhanced Model Picker
     const availability = getModelAvailability(selectedModel.name, selectedModel.provider);
+    const result = availability.status === 'ready';
     
-    console.log('🔑 Checking API key for model:', selectedModel.name, 'provider:', selectedModel.provider, 'availability:', availability);
+    // Only log once every 10 minutes per model
+    if (!apiKeyCache || apiKeyCache.modelKey !== currentModelKey || (now - apiKeyCache.timestamp) >= TEN_MINUTES) {
+      console.log('🔑 Checking API key for model:', selectedModel.name, 'provider:', selectedModel.provider, 'availability:', availability);
+    }
     
-    return availability.status === 'ready';
+    // Update cache
+    setApiKeyCache({
+      timestamp: now,
+      modelKey: currentModelKey,
+      result
+    });
+    
+    return result;
   };
 
   const sendErrorsToChat = async () => {
@@ -107,8 +144,37 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
     // Reset expansion state when a new file is selected
     if (selectedFile) {
       setIsExpanded(false);
+      loadFileDiff();
     }
   }, [selectedFile]);
+
+  const loadFileDiff = async () => {
+    if (!selectedFile || !currentApp?.path) {
+      setFileDiff('');
+      setShowDiff(false);
+      return;
+    }
+
+    try {
+      // Get git status to check if file is modified
+      const gitStatus = await gitService.getStatus(currentApp.path);
+      const fileStatus = gitStatus.files.find(f => f.path === selectedFile.path);
+      
+      if (fileStatus && (fileStatus.status === 'modified' || fileStatus.status === 'staged')) {
+        // Load diff for modified file
+        const diff = await gitService.getDiff(currentApp.path, selectedFile.path, fileStatus.status === 'staged');
+        setFileDiff(diff);
+        setShowDiff(true);
+      } else {
+        setFileDiff('');
+        setShowDiff(false);
+      }
+    } catch (error) {
+      console.error('Failed to load file diff:', error);
+      setFileDiff('');
+      setShowDiff(false);
+    }
+  };
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -780,6 +846,23 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                     >
                       <Edit3 className="w-4 h-4" />
                     </Button>
+
+                    {/* Diff toggle button - only show for modified files */}
+                    {fileDiff && (
+                      <Button
+                        variant="premium"
+                        size="sm"
+                        onClick={() => setShowDiff(!showDiff)}
+                        className={`h-9 px-4 rounded-xl ${showDiff 
+                          ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg' 
+                          : 'bg-white/20 backdrop-blur-sm hover:bg-white/30'
+                        }`}
+                        title="Toggle Diff View"
+                      >
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Diff
+                      </Button>
+                    )}
                   </>
                 )}
                 {selectedFile && isEditing && (
@@ -791,20 +874,23 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                         if (!currentApp) return;
                         setIsSaving(true);
                         try {
-                          // Attempt to resolve absolute path: assume files root is app.path + '/files'
-                          // selectedFile.path is relative inside project
-                          // Attempt to derive full path. Prefer currentApp.path (assumed absolute to project root), else fallback to desktop pattern.
-                          let projectRoot = currentApp.path;
-                          if (!projectRoot) {
-                            const desktop = await window.electronAPI.app.getDesktopPath();
-                            projectRoot = await window.electronAPI.path.join(desktop, 'prestige-ai', currentApp.name);
-                          }
-                          const fullPath = await window.electronAPI.path.join(projectRoot, selectedFile.path);
+                          // Get the correct app path using FileSystemService  
+                          const { FileSystemService } = await import('@/services/fileSystemService');
+                          const fileSystemService = FileSystemService.getInstance();
+                          const appPath = await fileSystemService.getAppPath(currentApp.name);
+                          
+                          // Files are stored in the 'files' subdirectory
+                          const filesPath = await window.electronAPI.path.join(appPath, 'files');
+                          const fullPath = await window.electronAPI.path.join(filesPath, selectedFile.path);
+                          
                           await window.electronAPI.fs.writeFile(fullPath, editedContent);
                           // Mutate in-memory content (lightweight sync)
                           selectedFile.content = editedContent;
                           setIsEditing(false);
                           showToast('File saved', 'success');
+                          
+                          // Trigger git status refresh using currentApp.path (appName) for consistency
+                          await gitService.onFileChanged(currentApp.path, selectedFile.path);
                         } catch (e) {
                           console.error('Save failed', e);
                           showToast('Failed to save file', 'error');
@@ -833,7 +919,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                   </>
                 )}
                 
-                {/* File tree action buttons */}
+                {/* File tree and source control action buttons */}
                 <Button
                   variant="premium"
                   size="sm"
@@ -841,6 +927,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                     const newState = !showFileTree;
                     console.log('Files button clicked. Current state:', showFileTree, 'New state:', newState);
                     setShowFileTree(newState);
+                    if (newState) setShowSourceControl(false); // Hide source control when showing files
                   }}
                   className={`h-9 px-4 rounded-xl ${showFileTree 
                     ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg' 
@@ -850,6 +937,25 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 >
                   <Folder className="w-4 h-4 mr-2" />
                   Files
+                </Button>
+                
+                <Button
+                  variant="premium"
+                  size="sm"
+                  onClick={() => {
+                    const newState = !showSourceControl;
+                    console.log('Source Control button clicked. Current state:', showSourceControl, 'New state:', newState);
+                    setShowSourceControl(newState);
+                    if (newState) setShowFileTree(false); // Hide files when showing source control
+                  }}
+                  className={`h-9 px-4 rounded-xl ${showSourceControl 
+                    ? 'bg-gradient-to-r from-prestige-primary to-prestige-secondary text-white shadow-lg' 
+                    : 'bg-white/20 backdrop-blur-sm hover:bg-white/30'
+                  }`}
+                  title="Toggle Source Control"
+                >
+                  <GitBranch className="w-4 h-4 mr-2" />
+                  Source Control
                 </Button>
               </>
             )}
@@ -968,7 +1074,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 <div className="flex-1 flex flex-col min-w-0">
                   {selectedFile ? (
                     <div className="h-full flex-1 min-w-0 relative">
-                      {!isEditing && (
+                      {!isEditing && !showDiff && (
                         <div className="relative h-full">
                           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 rounded-lg border border-white/10 shadow-2xl overflow-hidden">
                             <div className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-800/50 to-gray-800/50 border-b border-white/10">
@@ -993,6 +1099,18 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                                 {selectedFile.content}
                               </code>
                             </pre>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {!isEditing && showDiff && fileDiff && (
+                        <div className="h-full relative">
+                          <div className="absolute inset-0 bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+                            <DiffViewer 
+                              diff={fileDiff} 
+                              filePath={selectedFile.path} 
+                              className="h-full"
+                            />
                           </div>
                         </div>
                       )}
@@ -1060,6 +1178,13 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                     <div className="flex-1 overflow-auto">
                       <FileTreeView files={currentApp.files || []} />
                     </div>
+                  </div>
+                )}
+
+                {/* Source Control sidebar */}
+                {currentApp && showSourceControl && (
+                  <div className="w-1/3 border-l border-gray-200/50 flex flex-col shrink-0">
+                    <SourceControlPanel />
                   </div>
                 )}
               </div>
@@ -1246,6 +1371,7 @@ export function CodeViewerPanel({ className = '' }: CodeViewerPanelProps) {
                 )}
               </div>
             )}
+
           </div>
         </CardContent>
       </Card>

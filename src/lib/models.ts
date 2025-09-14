@@ -173,38 +173,39 @@ export const openrouterModels: LargeLanguageModel[] = [
   }
 ];
 
-// Ollama models (local)
+// Ollama models (local) - Disabled due to missing server
 export const ollamaModels: LargeLanguageModel[] = [
-  {
-    name: "llama3.3:70b",
-    provider: "ollama",
-    requiresApiKey: false,
-    requiresCli: false,
-    cost: "Free (local)",
-    contextWindow: 128000,
-    maxOutputTokens: 32000,
-    description: "Meta's Llama 3.3 70B model running locally"
-  },
-  {
-    name: "deepseek-r1:32b",
-    provider: "ollama",
-    requiresApiKey: false,
-    requiresCli: false,
-    cost: "Free (local)",
-    contextWindow: 128000,
-    maxOutputTokens: 32000,
-    description: "DeepSeek R1 32B reasoning model running locally"
-  },
-  {
-    name: "qwen2.5-coder:32b",
-    provider: "ollama",
-    requiresApiKey: false,
-    requiresCli: false,
-    cost: "Free (local)",
-    contextWindow: 128000,
-    maxOutputTokens: 32000,
-    description: "Alibaba's Qwen 2.5 Coder model for programming tasks"
-  }
+  // Commented out due to Ollama server not being available
+  // {
+  //   name: "llama3.3:70b",
+  //   provider: "ollama",
+  //   requiresApiKey: false,
+  //   requiresCli: false,
+  //   cost: "Free (local)",
+  //   contextWindow: 128000,
+  //   maxOutputTokens: 32000,
+  //   description: "Meta's Llama 3.3 70B model running locally"
+  // },
+  // {
+  //   name: "deepseek-r1:32b",
+  //   provider: "ollama",
+  //   requiresApiKey: false,
+  //   requiresCli: false,
+  //   cost: "Free (local)",
+  //   contextWindow: 128000,
+  //   maxOutputTokens: 32000,
+  //   description: "DeepSeek R1 32B reasoning model running locally"
+  // },
+  // {
+  //   name: "qwen2.5-coder:32b",
+  //   provider: "ollama",
+  //   requiresApiKey: false,
+  //   requiresCli: false,
+  //   cost: "Free (local)",
+  //   contextWindow: 128000,
+  //   maxOutputTokens: 32000,
+  //   description: "Alibaba's Qwen 2.5 Coder model for programming tasks"
+  // }
 ];
 
 // LM Studio models (local)
@@ -276,15 +277,15 @@ export const modelProviders = [
     icon: "🌐",
     envVar: "OPENROUTER_API_KEY"
   },
-  {
-    id: "ollama" as const,
-    name: "Ollama",
-    description: "Run open source models locally",
-    models: ollamaModels,
-    apiKeyRequired: false,
-    icon: "🦙",
-    envVar: undefined
-  },
+  // {
+  //   id: "ollama" as const,
+  //   name: "Ollama",
+  //   description: "Run open source models locally",
+  //   models: ollamaModels,
+  //   apiKeyRequired: false,
+  //   icon: "🦙",
+  //   envVar: undefined
+  // },
   {
     id: "lmstudio" as const,
     name: "LM Studio",

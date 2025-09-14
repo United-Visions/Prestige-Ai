@@ -161,6 +161,11 @@ ipcMain.handle('db:delete-conversation', async (_, conversationId) => {
   await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
 });
 
+ipcMain.handle('db:delete-message', async (_, messageId) => {
+  const db = ensureDb();
+  await db.delete(schema.messages).where(eq(schema.messages.id, messageId));
+});
+
 ipcMain.handle('db:rename-app', async (_, appId, newName) => {
   const db = ensureDb();
   await db.update(schema.apps).set({ name: newName, path: newName, updatedAt: new Date() }).where(eq(schema.apps.id, appId));
@@ -193,6 +198,15 @@ ipcMain.handle('fs:write-file', async (_, filePath: string, content: string): Pr
 ipcMain.handle('fs:exists', async (_, filePath: string): Promise<boolean> => {
   try {
     await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('fs:path-exists', async (_, path: string): Promise<boolean> => {
+  try {
+    await fs.promises.access(path);
     return true;
   } catch {
     return false;
@@ -582,3 +596,490 @@ ipcMain.handle('oauth:stop-server', async (): Promise<void> => {
 ipcMain.handle('oauth:open-url', async (_, url: string): Promise<void> => {
   await shell.openExternal(url);
 });
+
+// GitHub API handlers for device flow (bypasses CORS)
+ipcMain.handle('github:device-flow-start', async (_, params: { client_id: string; scope: string }) => {
+  try {
+    const response = await fetch('https://github.com/login/device/code', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub device flow failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('GitHub device flow start error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('github:device-flow-poll', async (_, params: { 
+  client_id: string; 
+  device_code: string; 
+  grant_type: string 
+}) => {
+  try {
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    const data = await response.json();
+    return { ok: response.ok, data };
+  } catch (error) {
+    console.error('GitHub device flow poll error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('github:api-request', async (_, { endpoint, options }: { 
+  endpoint: string; 
+  options?: RequestInit 
+}) => {
+  try {
+    const response = await fetch(`https://api.github.com${endpoint}`, {
+      ...options,
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        ...options?.headers,
+      },
+    });
+
+    const data = await response.json();
+    return { ok: response.ok, status: response.status, statusText: response.statusText, data };
+  } catch (error) {
+    console.error('GitHub API request error:', error);
+    throw error;
+  }
+});
+
+// Git operations handlers
+ipcMain.handle('git:init', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    
+    // Try different Git paths and shells
+    const gitPaths = ['/usr/bin/git', '/usr/local/bin/git', 'git'];
+    const shells = ['/bin/zsh', '/bin/bash', '/bin/sh', true];
+    
+    let lastError;
+    
+    for (const gitPath of gitPaths) {
+      for (const shell of shells) {
+        try {
+          const result = execSync(`${gitPath} init`, { 
+            cwd: repoPath, 
+            encoding: 'utf8',
+            shell: shell,
+            env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH}` }
+          });
+          console.log(`✅ Git init succeeded with ${gitPath} and shell ${shell}`);
+          return { success: true, output: result };
+        } catch (error) {
+          lastError = error;
+          console.log(`⚠️ Git init failed with ${gitPath} and shell ${shell}:`, error.message);
+        }
+      }
+    }
+    
+    throw lastError;
+  } catch (error) {
+    console.error('Git init error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Helper function for git command execution
+const getGitExecOptions = (cwd: string) => ({
+  cwd,
+  encoding: 'utf8' as const,
+  shell: process.platform === 'win32' ? true : '/bin/bash',
+  env: { 
+    ...process.env, 
+    PATH: process.platform === 'win32' 
+      ? process.env.PATH 
+      : `/usr/local/bin:/usr/bin:/opt/homebrew/bin:${process.env.PATH}`
+  },
+  timeout: 10000 // 10 second timeout
+});
+
+ipcMain.handle('git:status', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('git status --porcelain', getGitExecOptions(repoPath));
+    
+    // Parse git status output
+    const lines = result.trim().split('\n').filter(line => line.length > 0);
+    const staged = [];
+    const unstaged = [];
+    
+    for (const line of lines) {
+      const status = line.substring(0, 2);
+      const file = line.substring(3);
+      
+      if (status[0] !== ' ') {
+        staged.push({ file, status: status[0] });
+      }
+      if (status[1] !== ' ') {
+        unstaged.push({ file, status: status[1] });
+      }
+    }
+    
+    return { success: true, staged, unstaged };
+  } catch (error) {
+    console.error('Git status error:', error);
+    return { success: false, error: error.message, staged: [], unstaged: [] };
+  }
+});
+
+ipcMain.handle('git:add', async (_, repoPath: string, files: string[]) => {
+  try {
+    const { execSync } = require('child_process');
+    const fileList = files.length === 0 ? '.' : files.join(' ');
+    const result = execSync(`git add ${fileList}`, { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    return { success: true, output: result };
+  } catch (error) {
+    console.error('Git add error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('git:commit', async (_, repoPath: string, message: string, description?: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const fullMessage = description ? `${message}\n\n${description}` : message;
+    const result = execSync(`git commit -m "${fullMessage}"`, { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    return { success: true, output: result };
+  } catch (error) {
+    console.error('Git commit error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('git:push', async (_, repoPath: string, remote: string = 'origin', branch: string = 'main') => {
+  try {
+    const { execSync } = require('child_process');
+    const execOptions = { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    };
+    
+    // First try to push to the specified branch
+    try {
+      const result = execSync(`git push -u ${remote} ${branch}`, execOptions);
+      return { success: true, output: result };
+    } catch (pushError) {
+      // If push fails, it might be because the branch doesn't exist on remote
+      // Try to push with --set-upstream flag
+      console.log('Retrying push with upstream set...');
+      const result = execSync(`git push --set-upstream ${remote} ${branch}`, execOptions);
+      return { success: true, output: result };
+    }
+  } catch (error) {
+    console.error('Git push error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('git:force-push', async (_, repoPath: string, remote: string = 'origin', branch: string = 'main') => {
+  try {
+    const { execSync } = require('child_process');
+    
+    // Try different Git paths and shells for force push
+    const gitPaths = ['/usr/bin/git', '/usr/local/bin/git', 'git'];
+    const shells = ['/bin/zsh', '/bin/bash', '/bin/sh', true];
+    
+    let lastError;
+    
+    for (const gitPath of gitPaths) {
+      for (const shell of shells) {
+        try {
+          // Try force-with-lease first, then regular force push if needed
+          let result;
+          try {
+            result = execSync(`${gitPath} push --force-with-lease ${remote} ${branch}`, { 
+              cwd: repoPath, 
+              encoding: 'utf8',
+              shell: shell,
+              env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH}` }
+            });
+          } catch (leaseError) {
+            // If force-with-lease fails, try regular force push
+            console.log(`Force-with-lease failed, trying regular force push:`, leaseError.message);
+            result = execSync(`${gitPath} push --force ${remote} ${branch}`, { 
+              cwd: repoPath, 
+              encoding: 'utf8',
+              shell: shell,
+              env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH}` }
+            });
+          }
+          console.log(`✅ Git force push succeeded with ${gitPath} and shell ${shell}`);
+          return { success: true, output: result };
+        } catch (error) {
+          lastError = error;
+          console.log(`⚠️ Git force push failed with ${gitPath} and shell ${shell}:`, error.message);
+        }
+      }
+    }
+    
+    throw lastError;
+  } catch (error) {
+    console.error('Git force push error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('git:remote-add', async (_, repoPath: string, name: string, url: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(`git remote add ${name} ${url}`, { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    return { success: true, output: result };
+  } catch (error) {
+    console.error('Git remote add error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('git:remote-list', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('git remote -v', { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    
+    // Parse remote list
+    const lines = result.trim().split('\n').filter(line => line.length > 0);
+    const remotes = [];
+    
+    for (const line of lines) {
+      const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/);
+      if (match) {
+        const [, name, url, type] = match;
+        remotes.push({ name, url, type });
+      }
+    }
+    
+    return { success: true, remotes };
+  } catch (error) {
+    console.error('Git remote list error:', error);
+    return { success: false, error: error.message, remotes: [] };
+  }
+});
+
+ipcMain.handle('git:log', async (_, repoPath: string, limit: number = 10) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(`git log --oneline -${limit}`, { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    
+    // Parse git log output
+    const lines = result.trim().split('\n').filter(line => line.length > 0);
+    const commits = lines.map(line => {
+      const spaceIndex = line.indexOf(' ');
+      const hash = line.substring(0, spaceIndex);
+      const message = line.substring(spaceIndex + 1);
+      return { hash, message };
+    });
+    
+    return { success: true, commits };
+  } catch (error) {
+    console.error('Git log error:', error);
+    return { success: false, error: error.message, commits: [] };
+  }
+});
+
+ipcMain.handle('git:diff', async (_, repoPath: string, file?: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const command = file ? `git diff ${file}` : 'git diff';
+    const result = execSync(command, { 
+      cwd: repoPath, 
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+    });
+    return { success: true, diff: result };
+  } catch (error) {
+    console.error('Git diff error:', error);
+    return { success: false, error: error.message, diff: '' };
+  }
+});
+
+ipcMain.handle('git:clone', async (_, url: string, targetPath: string, name?: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const clonePath = name ? `${targetPath}/${name}` : targetPath;
+    const command = name ? `git clone ${url} ${name}` : `git clone ${url} .`;
+    
+    // Ensure target directory exists
+    if (name) {
+      const { mkdirSync } = require('fs');
+      mkdirSync(targetPath, { recursive: true });
+      const result = execSync(command, { 
+        cwd: targetPath, 
+        encoding: 'utf8',
+        shell: true,
+        env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+      });
+      return { success: true, output: result, path: clonePath };
+    } else {
+      const result = execSync(command, { 
+        cwd: targetPath, 
+        encoding: 'utf8',
+        shell: true,
+        env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:${process.env.PATH}` }
+      });
+      return { success: true, output: result, path: targetPath };
+    }
+  } catch (error) {
+    console.error('Git clone error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Modern Git API handlers for GitStatusService
+ipcMain.handle('git:stageFile', async (_, repoPath: string, filePath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    execSync(`git add "${filePath}"`, getGitExecOptions(repoPath));
+    return { success: true };
+  } catch (error) {
+    console.error('Git stage file error:', error);
+    throw new Error(`Failed to stage ${filePath}: ${error.message}`);
+  }
+});
+
+ipcMain.handle('git:unstageFile', async (_, repoPath: string, filePath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    execSync(`git reset HEAD "${filePath}"`, getGitExecOptions(repoPath));
+    return { success: true };
+  } catch (error) {
+    console.error('Git unstage file error:', error);
+    throw new Error(`Failed to unstage ${filePath}: ${error.message}`);
+  }
+});
+
+ipcMain.handle('git:stageAll', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    execSync('git add .', getGitExecOptions(repoPath));
+    return { success: true };
+  } catch (error) {
+    console.error('Git stage all error:', error);
+    throw new Error(`Failed to stage all files: ${error.message}`);
+  }
+});
+
+ipcMain.handle('git:unstageAll', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    execSync('git reset HEAD', getGitExecOptions(repoPath));
+    return { success: true };
+  } catch (error) {
+    console.error('Git unstage all error:', error);
+    throw new Error(`Failed to unstage all files: ${error.message}`);
+  }
+});
+
+ipcMain.handle('git:getCurrentBranch', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('git branch --show-current', getGitExecOptions(repoPath));
+    return result.toString().trim() || 'main';
+  } catch (error) {
+    console.error('Git get current branch error:', error);
+    return 'main';
+  }
+});
+
+ipcMain.handle('git:getAheadBehind', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('git status -b --porcelain', getGitExecOptions(repoPath));
+    const statusLines = result.toString().split('\n');
+    const branchLine = statusLines[0];
+    
+    let ahead = 0, behind = 0, upstream = '';
+    
+    if (branchLine.includes('[')) {
+      const match = branchLine.match(/\[([^\]]+)\]/);
+      if (match) {
+        const info = match[1];
+        const aheadMatch = info.match(/ahead (\d+)/);
+        const behindMatch = info.match(/behind (\d+)/);
+        if (aheadMatch) ahead = parseInt(aheadMatch[1]);
+        if (behindMatch) behind = parseInt(behindMatch[1]);
+        
+        // Extract upstream branch name
+        const upstreamMatch = branchLine.match(/##\s+\S+\.\.\.(\S+)/);
+        if (upstreamMatch) upstream = upstreamMatch[1];
+      }
+    }
+    
+    return { ahead, behind, upstream };
+  } catch (error) {
+    console.error('Git get ahead/behind error:', error);
+    return { ahead: 0, behind: 0, upstream: '' };
+  }
+});
+
+ipcMain.handle('git:getDiff', async (_, repoPath: string, filePath: string, staged: boolean = false) => {
+  try {
+    const { execSync } = require('child_process');
+    const command = staged ? `git diff --cached "${filePath}"` : `git diff "${filePath}"`;
+    const result = execSync(command, getGitExecOptions(repoPath));
+    return result.toString();
+  } catch (error) {
+    console.error('Git get diff error:', error);
+    return '';
+  }
+});
+
+ipcMain.handle('git:pull', async (_, repoPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('git pull', getGitExecOptions(repoPath));
+    return { success: true, output: result.toString() };
+  } catch (error) {
+    console.error('Git pull error:', error);
+    throw new Error(`Failed to pull: ${error.message}`);
+  }
+});
+

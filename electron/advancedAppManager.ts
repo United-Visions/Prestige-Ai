@@ -312,7 +312,7 @@ export class AdvancedAppManager {
             this.globalProxyWorker = await startProxy(urlMatch[1], {
               onStarted: (proxyUrl: string) => {
                 this.sendOutput(appId, {
-                  message: `[dyad-proxy-server]started=[${proxyUrl}] original=[${urlMatch[1]}]`,
+                  message: `[prestige-proxy-server]started=[${proxyUrl}] original=[${urlMatch[1]}]`,
                   type: 'stdout',
                   appId,
                   timestamp: Date.now()

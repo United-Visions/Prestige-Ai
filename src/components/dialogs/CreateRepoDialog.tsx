@@ -22,6 +22,8 @@ import {
   Globe
 } from 'lucide-react';
 import { GitHubService } from '@/services/githubService';
+import { gitService } from '@/services/gitService';
+import AppStateManager from '@/services/appStateManager';
 
 interface CreateRepoDialogProps {
   isOpen: boolean;
@@ -41,7 +43,6 @@ export function CreateRepoDialog({
   );
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [initWithReadme, setInitWithReadme] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ repo: any } | null>(null);
@@ -90,28 +91,55 @@ export function CreateRepoDialog({
     try {
       const githubService = GitHubService.getInstance();
       
-      if (!githubService.isAuthenticated()) {
-        throw new Error('Not authenticated with GitHub');
+      const isAuthenticated = await githubService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw new Error('Not authenticated with GitHub. Please connect your GitHub account first.');
       }
 
       const repo = await githubService.createRepository(repoName, {
         description: description.trim() || undefined,
         private: isPrivate,
-        autoInit: initWithReadme,
+        autoInit: false,
       });
 
       setSuccess({ repo });
 
-      // If sync option is selected and we have a current app, 
-      // we would implement the sync logic here
+      // If sync option is selected and we have a current app, sync it with the repo
       if (syncOption === 'create-and-sync' && currentApp) {
-        // TODO: Implement app-to-repo sync logic
-        // This would involve:
-        // 1. Initializing git in the app directory
-        // 2. Adding all files
-        // 3. Setting remote origin
-        // 4. Making initial commit and push
-        console.log('Sync functionality to be implemented');
+        try {
+          console.log('🔗 Linking app to GitHub repository...');
+          
+          // Get app directory path and ensure files are synced to disk first
+          let appPath = currentApp.path;
+          if (!appPath) {
+            const desktop = await window.electronAPI.app.getDesktopPath();
+            appPath = await window.electronAPI.path.join(desktop, 'prestige-ai', currentApp.name);
+          }
+
+          // Sync app files to disk before Git operations
+          try {
+            console.log('💾 Syncing app files to disk...');
+            const appStateManager = AppStateManager.getInstance();
+            await appStateManager.syncAppToDisk(currentApp);
+            console.log('✅ App files synced to disk');
+          } catch (syncError) {
+            console.error('❌ Failed to sync files to disk:', syncError);
+          }
+
+          // Initialize Git repository and link to GitHub
+          const syncResult = await gitService.initializeWithGitHub(appPath, repo.cloneUrl);
+          
+          if (!syncResult.success) {
+            console.warn('Git sync failed:', syncResult.error);
+            // Don't fail the overall operation, just warn the user
+            setError(`Repository created but sync failed: ${syncResult.error}`);
+          } else {
+            console.log('✅ App successfully linked to GitHub repository');
+          }
+        } catch (syncError) {
+          console.error('Sync error:', syncError);
+          setError(`Repository created but sync failed: ${syncError instanceof Error ? syncError.message : 'Unknown sync error'}`);
+        }
       }
 
       onSuccess?.();
@@ -225,15 +253,6 @@ export function CreateRepoDialog({
                   </Label>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="readme"
-                    checked={initWithReadme}
-                    onCheckedChange={(checked) => setInitWithReadme(!!checked)}
-                    disabled={isLoading}
-                  />
-                  <Label htmlFor="readme">Initialize with README</Label>
-                </div>
               </div>
 
               {currentApp && (
