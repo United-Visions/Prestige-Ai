@@ -383,6 +383,133 @@ ipcMain.handle('path:relative', async (_, from: string, to: string): Promise<str
   return require('path').relative(from, to);
 });
 
+// Terminal utilities for dependency installation
+const activeSessions = new Map<string, any>();
+
+ipcMain.handle('terminal:create-session', async (_, options: {
+  cwd: string;
+  env?: Record<string, string>;
+  shell?: string;
+  commandLine?: string;
+  appId?: number;
+  appName?: string;
+  cols?: number;
+  rows?: number;
+}): Promise<{ sessionId: string; pid: number }> => {
+  try {
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create a shell session for interactive command execution
+    const shell = process.platform === 'win32' ? 'cmd.exe' : 'bash';
+
+    console.log(`Terminal session ${sessionId}: Creating shell in ${options.cwd}`);
+
+    const child = spawn(shell, [], {
+      cwd: options.cwd,
+      env: { ...process.env, ...options.env },
+      stdio: 'pipe'
+    });
+
+    // Store the session for later writes
+    activeSessions.set(sessionId, child);
+
+    // Send output to renderer
+    child.stdout?.on('data', (data) => {
+      mainWindow?.webContents.send(`terminal:data:${sessionId}`, data.toString());
+    });
+
+    child.stderr?.on('data', (data) => {
+      mainWindow?.webContents.send(`terminal:data:${sessionId}`, data.toString());
+    });
+
+    child.on('exit', (code) => {
+      activeSessions.delete(sessionId);
+      mainWindow?.webContents.send(`terminal:exit:${sessionId}`, code);
+    });
+
+    child.on('error', (error) => {
+      console.error(`Terminal session ${sessionId} error:`, error);
+      activeSessions.delete(sessionId);
+      mainWindow?.webContents.send(`terminal:exit:${sessionId}`, 1);
+    });
+
+    return { sessionId, pid: child.pid || 0 };
+  } catch (error) {
+    console.error('Failed to create terminal session:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('terminal:write', async (_, sessionId: string, data: string): Promise<boolean> => {
+  try {
+    const session = activeSessions.get(sessionId);
+    if (!session || session.killed) {
+      console.error(`Terminal session ${sessionId} not found or killed`);
+      return false;
+    }
+
+    console.log(`Terminal write to ${sessionId}: ${data.trim()}`);
+    session.stdin.write(data);
+    return true;
+  } catch (error) {
+    console.error(`Error writing to terminal session ${sessionId}:`, error);
+    return false;
+  }
+});
+
+ipcMain.handle('terminal:kill', async (_, sessionId: string): Promise<boolean> => {
+  try {
+    const session = activeSessions.get(sessionId);
+    if (session && !session.killed) {
+      console.log(`Terminal killing session: ${sessionId}`);
+      session.kill();
+      activeSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error(`Error killing terminal session ${sessionId}:`, error);
+    return false;
+  }
+});
+
+ipcMain.handle('terminal:resize', async (_, sessionId: string, cols: number, rows: number): Promise<boolean> => {
+  // Terminal resize not needed for dependency installation
+  return true;
+});
+
+ipcMain.handle('terminal:kill-sessions-for-app', async (_, appId: number): Promise<void> => {
+  console.log(`Killing terminal sessions for app: ${appId}`);
+  // For now, kill all active sessions since we don't track by app
+  for (const [sessionId, session] of activeSessions.entries()) {
+    try {
+      if (session && !session.killed) {
+        session.kill();
+      }
+    } catch (error) {
+      console.error(`Error killing session ${sessionId}:`, error);
+    }
+  }
+  activeSessions.clear();
+});
+
+ipcMain.handle('terminal:check-claude-availability', async (): Promise<boolean> => {
+  // Check if Claude CLI is available
+  try {
+    const child = spawn('claude', ['--version'], { stdio: 'pipe' });
+    return new Promise((resolve) => {
+      child.on('exit', (code) => {
+        resolve(code === 0);
+      });
+      child.on('error', () => {
+        resolve(false);
+      });
+    });
+  } catch {
+    return false;
+  }
+});
+
 // App utilities
 ipcMain.handle('app:get-app-data-path', async (): Promise<string> => {
   return app.getPath('userData');

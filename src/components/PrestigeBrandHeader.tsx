@@ -4,16 +4,17 @@ import { Badge } from '@/components/ui/badge';
 import { EnhancedModelPicker } from '@/components/EnhancedModelPicker';
 import { useTheme } from '@/components/theme-provider';
 import { ToolsMenuDialog } from '@/components/dialogs/ToolsMenuDialog';
-import { 
-  Sparkles, 
-  Play, 
-  Moon, 
-  Sun, 
-  Settings, 
+import {
+  Sparkles,
+  Play,
+  Moon,
+  Sun,
+  Settings,
   Zap,
   Crown,
   Gem,
-  Wrench
+  Wrench,
+  Code2
 } from 'lucide-react';
 
 interface PrestigeBrandHeaderProps {
@@ -116,7 +117,7 @@ export function PrestigeBrandHeader({
               )}
             </Button>
             
-            {/* Preview Button */}
+            {/* Codebase Button */}
             {currentApp && onPreviewApp && (
               <Button
                 size="sm"
@@ -124,8 +125,8 @@ export function PrestigeBrandHeader({
                 onClick={onPreviewApp}
                 className="bg-gradient-primary hover:opacity-90 text-white font-medium shadow-lg"
               >
-                <Play className="w-4 h-4 mr-2" />
-                Preview
+                <Code2 className="w-4 h-4 mr-2" />
+                Codebase
               </Button>
             )}
             

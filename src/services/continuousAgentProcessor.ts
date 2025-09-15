@@ -31,12 +31,16 @@ type Operation = FileOperation | DependencyOperation | CommandOperation;
 function parsePrestigeTags(response: string): { operations: Operation[], chatSummary: string, chatContent: string } {
   const operations: Operation[] = [];
   let chatSummary = '';
+
+  // PRESERVE ALL BLOCKS IN CHAT CONTENT - only extract operations for execution
+  // The chatContent should contain all blocks for UI display after response completes
   let chatContent = response;
 
-  // Remove thinking tags but preserve integration tags for UI display
+  // Only remove thinking tags from display (but keep all other blocks visible)
   const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
   chatContent = chatContent.replace(thinkRegex, '').trim();
 
+  // Extract operations for execution but DON'T remove blocks from chatContent
   const writeRegex = /<prestige-write path="([^"]+)" description="([^"]*)">([\s\S]*?)<\/prestige-write>/g;
   let match;
   while ((match = writeRegex.exec(response)) !== null) {
@@ -46,40 +50,39 @@ function parsePrestigeTags(response: string): { operations: Operation[], chatSum
       description: match[2],
       content: match[3].trim(),
     });
-    chatContent = chatContent.replace(match[0], '').trim();
+    // KEEP blocks in chatContent for UI display
   }
 
   const renameRegex = /<prestige-rename from="([^"]+)" to="([^"]+)"><\/prestige-rename>/g;
   while ((match = renameRegex.exec(response)) !== null) {
     operations.push({ type: 'rename', path: match[1], newPath: match[2] });
-    chatContent = chatContent.replace(match[0], '').trim();
+    // KEEP blocks in chatContent for UI display
   }
 
   const deleteRegex = /<prestige-delete path="([^"]+)"><\/prestige-delete>/g;
   while ((match = deleteRegex.exec(response)) !== null) {
     operations.push({ type: 'delete', path: match[1] });
-    chatContent = chatContent.replace(match[0], '').trim();
+    // KEEP blocks in chatContent for UI display
   }
 
   const dependencyRegex = /<prestige-add-dependency packages="([^"]+)"><\/prestige-add-dependency>/g;
   while ((match = dependencyRegex.exec(response)) !== null) {
     operations.push({ type: 'add-dependency', packages: match[1].split(' ') });
-    chatContent = chatContent.replace(match[0], '').trim();
+    // KEEP blocks in chatContent for UI display
   }
-  
+
   const commandRegex = /<prestige-command type="([^"]+)"><\/prestige-command>/g;
   while ((match = commandRegex.exec(response)) !== null) {
     operations.push({ type: 'command', command: match[1] as 'rebuild' | 'restart' | 'refresh' });
-    chatContent = chatContent.replace(match[0], '').trim();
+    // KEEP blocks in chatContent for UI display
   }
 
-  // NOTE: prestige-add-integration tags are intentionally NOT removed from chatContent
-  // so they can be displayed as interactive UI components to the user
-
+  // Extract and remove chat summary from display (but keep it for metadata)
   const summaryRegex = /<prestige-chat-summary>([\s\S]*?)<\/prestige-chat-summary>/;
   const summaryMatch = response.match(summaryRegex);
   if (summaryMatch) {
     chatSummary = summaryMatch[1].trim();
+    // Remove only the summary tag from display since it's shown separately
     chatContent = chatContent.replace(summaryMatch[0], '').trim();
   }
 

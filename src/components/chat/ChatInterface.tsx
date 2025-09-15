@@ -14,9 +14,14 @@ import { PrestigeBrandHeader } from '@/components/PrestigeBrandHeader';
 import { PrestigeWelcomeScreen } from '@/components/PrestigeWelcomeScreen';
 import { PrestigeChatArea } from '@/components/PrestigeChatArea';
 import { PrestigeChatInput } from '@/components/PrestigeChatInput';
+import { ChatPreviewPanel } from './ChatPreviewPanel';
+import { PreviewSlidePanel } from '@/components/preview/PreviewSlidePanel';
+import { PreviewTab } from '@/components/preview/PreviewTab';
 import { constructSystemPromptAsync, readAiRules } from '@/prompts/system_prompt';
 import { aiModelServiceV2 as aiModelService, StreamChunk } from '@/services/aiModelService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
+import { FileSystemService } from '@/services/fileSystemService';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 import { PrestigeMarkdownRenderer } from './PrestigeMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
 import type { Message } from '@/types';
@@ -38,7 +43,7 @@ export function ChatInterface() {
     setSelectedModel,
   } = useAppStore();
 
-  const { showPreviewMode } = useCodeViewerStore();
+  const { showPreviewMode, showPreviewInChat } = useCodeViewerStore();
 
   const [input, setInput] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_TEMPLATE_ID);
@@ -47,6 +52,10 @@ export function ChatInterface() {
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [pendingUserMessage, setPendingUserMessage] = useState<Message | null>(null);
+
+  // Preview panel state
+  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
   // Enhanced streaming service
   const { startEnhancedStream, cancelStream } = useEnhancedStreaming();
@@ -74,17 +83,20 @@ export function ChatInterface() {
 
   const getSystemPrompt = useCallback(async () => {
     if (!currentApp) return constructSystemPromptAsync({ aiRules: undefined });
-    
+
     const aiRules = await readAiRules(currentApp.path);
-    
+
     let fileStructure = '';
+    let fileContents = '';
     if (currentApp.files && currentApp.files.length > 0) {
       fileStructure = generateFileStructure(currentApp.files);
+      fileContents = await generateFileContents(currentApp.files, currentApp.name);
     }
-    
-    return constructSystemPromptAsync({ 
-      aiRules, 
+
+    return constructSystemPromptAsync({
+      aiRules,
       fileStructure,
+      fileContents,
       appPath: currentApp.path
     });
   }, [currentApp]);
@@ -102,6 +114,61 @@ export function ChatInterface() {
       .join('\n');
   };
 
+  const generateFileContents = async (files: any[], appName: string): Promise<string> => {
+    const fileSystemService = FileSystemService.getInstance();
+    const contentParts: string[] = [];
+
+    // Define key files we want to include in context (to limit size)
+    const keyFilePatterns = [
+      /^src\/.*\.(js|jsx|ts|tsx)$/,
+      /^.*\.json$/,
+      /^.*\.md$/,
+      /^src\/.*\.css$/,
+      /^.*\.(html|htm)$/,
+      /^.*\.env.*$/
+    ];
+
+    // Flatten files and filter for key files
+    const flattenFiles = (fileList: any[], prefix = ''): any[] => {
+      const result: any[] = [];
+      for (const file of fileList) {
+        const fullPath = prefix ? `${prefix}/${file.name}` : file.name;
+        if (file.type === 'file') {
+          result.push({ ...file, path: fullPath });
+        } else if (file.children) {
+          result.push(...flattenFiles(file.children, fullPath));
+        }
+      }
+      return result;
+    };
+
+    const flatFiles = flattenFiles(files);
+    const keyFiles = flatFiles.filter(file =>
+      keyFilePatterns.some(pattern => pattern.test(file.path))
+    );
+
+    // Load content for key files
+    try {
+      const { filesPath } = await resolveAppPaths({ name: appName, path: appName } as any);
+
+      for (const file of keyFiles.slice(0, 10)) { // Limit to 10 files to avoid prompt bloat
+        try {
+          const fullPath = await window.electronAPI.path.join(filesPath, file.path);
+          const content = await fileSystemService.readFile(fullPath);
+          if (content && content.trim()) {
+            contentParts.push(`## File: ${file.path}\n\`\`\`\n${content}\n\`\`\``);
+          }
+        } catch (error) {
+          console.warn(`Failed to read file ${file.path}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to generate file contents:', error);
+    }
+
+    return contentParts.join('\n\n');
+  };
+
   const handleStopGeneration = () => {
     if (abortController) {
       abortController.abort();
@@ -114,6 +181,18 @@ export function ChatInterface() {
 
   const handleSendMessage = async (content: string) => {
     if (!content.trim() || isGenerating) return;
+
+    // Create immediate user message for display
+    const immediateUserMessage: Message = {
+      id: Date.now(),
+      content,
+      role: 'user',
+      createdAt: new Date(),
+      conversationId: currentConversation?.id || 0
+    };
+
+    // Show user message immediately
+    setPendingUserMessage(immediateUserMessage);
 
     setInput('');
     setIsGenerating(true);
@@ -184,6 +263,9 @@ export function ChatInterface() {
         // This ensures the user message appears immediately
         const { setCurrentConversation } = useAppStore.getState();
         setCurrentConversation(updatedConversation);
+
+        // Clear pending message since it's now in the conversation
+        setPendingUserMessage(null);
       }
 
       const systemPrompt = await getSystemPrompt();
@@ -200,6 +282,8 @@ export function ChatInterface() {
       };
 
       await startEnhancedStream(content, {
+        selectedModel,
+        systemPrompt,
         onChunk: (chunk: string, fullResponse: string) => {
           if (controller.signal.aborted) return;
           setStreamingContent(fullResponse);
@@ -228,6 +312,13 @@ export function ChatInterface() {
                 createdAt: new Date()
               });
             }
+
+            // Force refresh the conversation to show the new message immediately
+            const appService = AdvancedAppManagementService.getInstance();
+            const updatedConversation = await appService.getConversation(conversationId);
+            const { setCurrentConversation } = useAppStore.getState();
+            setCurrentConversation(updatedConversation);
+
           } catch (err) {
             console.error('Error processing response:', err);
             await addMessage(conversationId, {
@@ -236,9 +327,13 @@ export function ChatInterface() {
               createdAt: new Date()
             });
           } finally {
-            setIsGenerating(false);
-            setIsStreamingResponse(false);
-            setStreamingContent('');
+            // Delay clearing streaming state to prevent visual gap
+            setTimeout(() => {
+              setIsGenerating(false);
+              setIsStreamingResponse(false);
+              setStreamingContent('');
+              setPendingUserMessage(null); // Clear any remaining pending message
+            }, 100); // Small delay to allow UI to update
           }
         },
         onError: (error: Error) => {
@@ -294,45 +389,59 @@ export function ChatInterface() {
       
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
-        {/* Prestige Brand Header */}
-        <PrestigeBrandHeader
-          currentApp={currentApp}
-          selectedModel={selectedModel}
-          setSelectedModel={setSelectedModel}
-          onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
-          onModelPreferencesOpen={() => setModelPreferencesDialogOpen(true)}
-          onPreviewApp={handlePreviewApp}
-        />
-
-        {/* Main Content Area */}
-        {!currentApp ? (
-          <PrestigeWelcomeScreen
-            selectedTemplateId={selectedTemplateId}
-            onTemplateSelect={handleTemplateSelect}
-            onQuickPrompt={handleQuickPrompt}
-            onCreateWithTemplate={handleCreateWithSelectedTemplate}
+        {/* Prestige Brand Header - Hidden when preview is showing */}
+        {!showPreviewInChat && (
+          <PrestigeBrandHeader
+            currentApp={currentApp}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+            onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
+            onModelPreferencesOpen={() => setModelPreferencesDialogOpen(true)}
+            onPreviewApp={handlePreviewApp}
           />
-        ) : (
+        )}
+
+        {/* Main Content Area - Hidden when preview is showing */}
+        {!showPreviewInChat && (
           <>
-            <PrestigeChatArea
-              currentApp={currentApp}
-              currentConversation={currentConversation}
-              isStreamingResponse={isStreamingResponse}
-              streamingContent={streamingContent}
-              isGenerating={isGenerating}
-              onStopGeneration={handleStopGeneration}
-            />
-            
-            {error && (
-              <div className="px-6">
-                <Card className="border-destructive bg-destructive/5">
-                  <CardContent className="p-4">
-                    <p className="text-destructive text-sm font-medium">{error}</p>
-                  </CardContent>
-                </Card>
-              </div>
+            {!currentApp ? (
+              <PrestigeWelcomeScreen
+                selectedTemplateId={selectedTemplateId}
+                onTemplateSelect={handleTemplateSelect}
+                onQuickPrompt={handleQuickPrompt}
+                onCreateWithTemplate={handleCreateWithSelectedTemplate}
+              />
+            ) : (
+              <>
+                <PrestigeChatArea
+                  currentApp={currentApp}
+                  currentConversation={currentConversation}
+                  isStreamingResponse={isStreamingResponse}
+                  streamingContent={streamingContent}
+                  isGenerating={isGenerating}
+                  onStopGeneration={handleStopGeneration}
+                  pendingUserMessage={pendingUserMessage}
+                />
+
+                {error && (
+                  <div className="px-6">
+                    <Card className="border-destructive bg-destructive/5">
+                      <CardContent className="p-4">
+                        <p className="text-destructive text-sm font-medium">{error}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </>
             )}
           </>
+        )}
+
+        {/* Chat Preview Panel - Takes full height when active */}
+        {showPreviewInChat && (
+          <div className="flex-1 flex flex-col px-6 py-6">
+            <ChatPreviewPanel />
+          </div>
         )}
 
         {/* Enhanced Chat Input */}
@@ -369,6 +478,25 @@ export function ChatInterface() {
 
       {/* Code Viewer Panel */}
       <CodeViewerPanel />
+
+      {/* Preview Tab - Always visible on right side when app exists */}
+      {currentApp && (
+        <PreviewTab
+          isRunning={false}
+          isOpen={showPreviewPanel}
+          onClick={() => setShowPreviewPanel(!showPreviewPanel)}
+          currentAppName={currentApp.name}
+        />
+      )}
+
+      {/* Preview Slide Panel */}
+      <PreviewSlidePanel
+        isOpen={showPreviewPanel}
+        onClose={() => setShowPreviewPanel(false)}
+        currentApp={currentApp}
+        selectedModel={selectedModel}
+        currentConversation={currentConversation}
+      />
     </div>
   );
 }

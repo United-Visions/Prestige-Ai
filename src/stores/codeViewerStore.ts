@@ -8,6 +8,7 @@ interface CodeViewerState {
   isAnimating: boolean;
   activeTab: string;
   showFileTree: boolean;
+  showPreviewInChat: boolean;
 
   // Actions
   showCodeViewer: (file: FileNode) => void;
@@ -17,6 +18,7 @@ interface CodeViewerState {
   setIsAnimating: (isAnimating: boolean) => void;
   setActiveTab: (tab: string) => void;
   setShowFileTree: (show: boolean) => void;
+  setShowPreviewInChat: (show: boolean) => void;
 }
 
 const useCodeViewerStore = create<CodeViewerState>()(
@@ -28,6 +30,7 @@ const useCodeViewerStore = create<CodeViewerState>()(
       isAnimating: false,
       activeTab: 'code',
       showFileTree: true,
+      showPreviewInChat: false,
 
       // Actions
       showCodeViewer: (file: FileNode) => {
@@ -82,6 +85,10 @@ const useCodeViewerStore = create<CodeViewerState>()(
 
       setShowFileTree: (show: boolean) => {
         set({ showFileTree: show });
+      },
+
+      setShowPreviewInChat: (show: boolean) => {
+        set({ showPreviewInChat: show });
       },
     }),
     {

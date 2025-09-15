@@ -523,11 +523,13 @@ export const constructSystemPrompt = ({
   aiRules,
   chatMode = "build",
   fileStructure,
+  fileContents,
   appPath,
 }: {
   aiRules: string | undefined;
   chatMode?: "build" | "ask";
   fileStructure?: string;
+  fileContents?: string;
   appPath?: string;
 }) => {
   const systemPrompt =
@@ -555,7 +557,22 @@ The following files and directories currently exist in this project:
 ${fileStructure}
 \`\`\`
 
-When creating or modifying files, consider this existing structure. You can reference these files and understand the current project layout when making recommendations or writing new code.
+When creating or modifying files, consider this existing structure. You can reference these files and understand the current project layout when making recommendations or writing new code.`;
+
+    // Add actual file contents if available
+    if (fileContents && fileContents.trim()) {
+      finalPrompt += `
+
+# Current File Contents
+
+**IMPORTANT: This application already exists and has been built. The following are the CURRENT contents of key files. When making changes, you must modify the existing code, not create from scratch.**
+
+${fileContents}
+
+**You are working on an EXISTING application. Always read and understand the current code before making changes. Do not recreate or scaffold from templates - modify what already exists.**`;
+    } else {
+      // Fallback to template description only if no file contents
+      finalPrompt += `
 
 ## Available Template Files
 
@@ -574,6 +591,7 @@ This project was created from a template that includes the following key files:
 - \`index.html\` - Main HTML entry point
 
 All shadcn/ui components and their dependencies are already installed and available for use.`;
+    }
   }
 
   return finalPrompt;
@@ -583,11 +601,13 @@ export const constructSystemPromptAsync = async ({
   aiRules,
   chatMode = "build",
   fileStructure,
+  fileContents,
   appPath,
 }: {
   aiRules: string | undefined;
   chatMode?: "build" | "ask";
   fileStructure?: string;
+  fileContents?: string;
   appPath?: string;
 }) => {
   // Get base system prompt
@@ -595,6 +615,7 @@ export const constructSystemPromptAsync = async ({
     aiRules,
     chatMode,
     fileStructure,
+    fileContents,
     appPath,
   });
 

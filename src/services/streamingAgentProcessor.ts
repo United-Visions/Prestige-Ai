@@ -1,10 +1,11 @@
 import { PrestigeBlockState } from '@/components/chat/blocks/PrestigeBlockTypes';
 import { processAgentResponse } from './agentResponseProcessor';
+import { codebaseContextService, ContextRequest } from './codebaseContextService';
 
 const { fs } = window.electronAPI;
 const { path } = window.electronAPI;
 import useAppStore from '@/stores/appStore';
-import { showSuccess, showError } from '@/utils/toast';
+import { showSuccess, showError, showInfo } from '@/utils/toast';
 import { resolveAppPaths } from '@/utils/appPathResolver';
 import AppStateManager from '@/services/appStateManager';
 
@@ -197,6 +198,27 @@ export class StreamingAgentProcessor {
       });
     }
 
+    // Parse codebase context operations
+    const contextRegex = /<prestige-codebase-context\s+([^>]+)>(?:([\s\S]*?)(?:<\/prestige-codebase-context>|$))?/g;
+    while ((match = contextRegex.exec(response)) !== null) {
+      const attributes = this.parseAttributes(match[1]);
+      operations.push({
+        id: `context_${Date.now()}_${Math.random()}`,
+        type: 'codebase-context',
+        contextRequest: {
+          type: attributes.type || 'full-analysis',
+          templateId: attributes['template-id'],
+          files: attributes.files?.split(',').map(f => f.trim()),
+          patterns: attributes.patterns?.split(',').map(p => p.trim()),
+          query: attributes.query,
+          keep: attributes.keep?.split(',').map(f => f.trim())
+        } as ContextRequest,
+        content: match[2]?.trim() || '',
+        state: this.isTagComplete(match[0]) ? 'finished' : 'pending',
+        startIndex: match.index
+      });
+    }
+
     // Parse chat summary
     const summaryRegex = /<prestige-chat-summary>([\s\S]*?)(?:<\/prestige-chat-summary>|$)/g;
     while ((match = summaryRegex.exec(response)) !== null) {
@@ -211,6 +233,21 @@ export class StreamingAgentProcessor {
 
     // Sort operations by their position in the response
     return operations.sort((a, b) => (a.startIndex || 0) - (b.startIndex || 0));
+  }
+
+  /**
+   * Parse XML-style attributes from a string
+   */
+  private parseAttributes(attributeString: string): Record<string, string> {
+    const attributes: Record<string, string> = {};
+    const regex = /(\w+(?:-\w+)*)="([^"]*)"/g;
+    let match;
+
+    while ((match = regex.exec(attributeString)) !== null) {
+      attributes[match[1]] = match[2];
+    }
+
+    return attributes;
   }
 
   /**
@@ -345,11 +382,38 @@ export class StreamingAgentProcessor {
         }
         break;
 
+      case 'codebase-context':
+        if (op.contextRequest) {
+          await this.executeContextOperation(op.contextRequest);
+        }
+        break;
+
       case 'chat-summary':
         if (op.content) {
           useAppStore.getState().setChatSummary(op.content);
         }
         break;
+    }
+  }
+
+  /**
+   * Execute codebase context operation
+   */
+  private async executeContextOperation(request: ContextRequest): Promise<void> {
+    try {
+      showInfo(`🔍 Processing context: ${request.type}`);
+
+      const context = await codebaseContextService.processContextRequest(request);
+
+      if (context) {
+        // Context is now loaded and available for AI responses
+        showSuccess(`✅ Context loaded: ${context.files.length} files, ${context.patterns.length} patterns`);
+      } else {
+        showError('Failed to load codebase context');
+      }
+    } catch (error) {
+      console.error('Context operation failed:', error);
+      showError(`Context operation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -366,7 +430,7 @@ export class StreamingAgentProcessor {
  */
 export interface PrestigeStreamingOperation {
   id: string;
-  type: 'think' | 'write' | 'rename' | 'delete' | 'add-dependency' | 'command' | 'add-integration' | 'chat-summary';
+  type: 'think' | 'write' | 'rename' | 'delete' | 'add-dependency' | 'command' | 'add-integration' | 'codebase-context' | 'chat-summary';
   state: PrestigeBlockState;
   startIndex?: number;
 
@@ -389,6 +453,9 @@ export interface PrestigeStreamingOperation {
 
   // Integration operation fields
   provider?: string;
+
+  // Codebase context operation fields
+  contextRequest?: ContextRequest;
 }
 
 /**

@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import './styles/chat-animations.css';
 
 @tailwind base;
 @tailwind components;
@@ -199,5 +200,70 @@
   @keyframes pulse-glow {
     0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.1); }
     50% { box-shadow: 0 0 30px hsl(var(--primary) / 0.3); }
+  }
+
+  /* Vertical text for preview tab */
+  .writing-vertical {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+
+  /* Log animations */
+  .log-entry {
+    animation: slideInFromBottom 0.3s ease-out;
+  }
+
+  @keyframes slideInFromBottom {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .log-container {
+    scroll-behavior: smooth;
+  }
+
+  /* Enhanced fade-in for new logs */
+  .log-entry-new {
+    animation: fadeInSlide 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes fadeInSlide {
+    0% {
+      opacity: 0;
+      transform: translateY(15px) scale(0.98);
+    }
+    60% {
+      opacity: 0.8;
+      transform: translateY(-2px) scale(1.01);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Typing effect for very new logs */
+  .log-entry-typing {
+    animation: typing 0.5s steps(20) forwards, fadeInSlide 0.3s ease-out;
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid rgba(34, 197, 94, 0.7);
+  }
+
+  @keyframes typing {
+    from {
+      width: 0;
+      border-right-color: rgba(34, 197, 94, 0.7);
+    }
+    to {
+      width: 100%;
+      border-right-color: transparent;
+    }
   }
 }

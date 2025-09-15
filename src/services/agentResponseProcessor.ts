@@ -7,46 +7,56 @@ import { resolveAppPaths } from '@/utils/appPathResolver';
 import AppStateManager from '@/services/appStateManager';
 import { prestigeAutoFixService, PrestigeProblemReport } from './prestigeAutoFixService';
 
-// Helper function for executing commands using Electron API
+// Helper function for executing commands using terminal session
 const execAsync = async (command: string, options: { cwd: string; timeout?: number }) => {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const { spawn } = window.electronAPI;
-    const [cmd, ...args] = command.split(' ');
-    const child = spawn(cmd, args, {
+    const { terminal } = window.electronAPI;
+
+    terminal.createSession({
       cwd: options.cwd,
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
+      cols: 80,
+      rows: 24
+    }).then(({ sessionId }) => {
+      let output = '';
+      let hasFinished = false;
 
-    let stdout = '';
-    let stderr = '';
+      const timer = options.timeout ? setTimeout(() => {
+        if (!hasFinished) {
+          hasFinished = true;
+          terminal.kill(sessionId);
+          reject(new Error('Command timeout'));
+        }
+      }, options.timeout) : null;
 
-    child.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
+      terminal.onData(sessionId, (data) => {
+        output += data;
+      });
 
-    child.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
+      terminal.onExit(sessionId, (exitCode) => {
+        if (!hasFinished) {
+          hasFinished = true;
+          if (timer) clearTimeout(timer);
+          terminal.removeListeners(sessionId);
 
-    const timer = options.timeout ? setTimeout(() => {
-      child.kill();
-      reject(new Error('Command timeout'));
-    }, options.timeout) : null;
+          if (exitCode === 0) {
+            resolve({ stdout: output, stderr: '' });
+          } else {
+            reject(new Error(`Command failed with code ${exitCode}: ${output}`));
+          }
+        }
+      });
 
-    child.on('close', (code) => {
-      if (timer) clearTimeout(timer);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        reject(new Error(`Command failed with code ${code}: ${stderr}`));
-      }
-    });
+      // Execute the command
+      terminal.write(sessionId, command + '\n').then(() => {
+        // Add exit command to close the session
+        setTimeout(() => {
+          if (!hasFinished) {
+            terminal.write(sessionId, 'exit\n');
+          }
+        }, 1000);
+      }).catch(reject);
 
-    child.on('error', (error) => {
-      if (timer) clearTimeout(timer);
-      reject(error);
-    });
+    }).catch(reject);
   });
 };
 

@@ -37,6 +37,8 @@ export class EnhancedStreamingService {
       enableAggressiveFixes?: boolean;
       aiRequestFunction?: (prompt: string) => Promise<string>;
       affectedFiles?: string[];
+      selectedModel?: any;
+      systemPrompt?: string;
     } = {}
   ): Promise<void> {
     const {
@@ -70,8 +72,8 @@ export class EnhancedStreamingService {
       // Initialize streaming processors
       const { processStreamingChunk, processFinalResponse } = useStreamingAgentProcessor();
 
-      // Mock streaming response (replace with actual AI streaming)
-      const streamingResponse = this.simulateEnhancedAIStreaming(prompt, abortController.signal);
+      // Enhanced AI streaming response with system prompt
+      const streamingResponse = this.simulateEnhancedAIStreaming(prompt, abortController.signal, options.selectedModel, options.systemPrompt);
 
       for await (const chunk of streamingResponse) {
         if (abortController.signal.aborted) {
@@ -295,84 +297,62 @@ Please provide the necessary fixes using prestige tags:
   }
 
   /**
-   * Simulate enhanced AI streaming (replace with actual streaming implementation)
+   * Enhanced AI streaming using AI SDK
    */
   private async* simulateEnhancedAIStreaming(
     prompt: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    selectedModel?: any,
+    systemPrompt?: string
   ): AsyncGenerator<string> {
-    const mockResponse = `I'll help you create that component. Let me start by analyzing what we need.
+    try {
+      // Import AI SDK modules dynamically
+      const { streamText } = await import('ai');
+      const { createModelClient } = await import('./modelClient');
 
-<think>
-The user wants to create a new component. I should check the current structure and then create the files needed. I'll also need to install any missing dependencies if required.
-</think>
+      if (!selectedModel) {
+        throw new Error('No model selected. Please select a model in the preferences.');
+      }
 
-Let me create a new Button component for you.
+      const { model } = createModelClient(selectedModel);
 
-<prestige-write path="src/components/Button.tsx" description="Creating a reusable Button component">
-import React from 'react';
-import { cn } from '@/lib/utils';
+      // Use provided system prompt or fallback to basic prestige tags context
+      const finalSystemPrompt = systemPrompt || `You are Prestige AI, an intelligent coding assistant. When making changes to files or creating code, use prestige tags:
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
-  children: React.ReactNode;
-}
+- Use <prestige-write path="file/path.ext" description="Brief description">content</prestige-write> to write/modify files
+- Use <prestige-add-dependency packages="package1 package2"> to install dependencies
+- Use <prestige-command type="rebuild|restart|refresh"> to execute commands
+- Use <prestige-chat-summary>Brief summary</prestige-chat-summary> to summarize your response
 
-export const Button: React.FC<ButtonProps> = ({
-  variant = 'primary',
-  size = 'md',
-  className,
-  children,
-  ...props
-}) => {
-  return (
-    <button
-      className={cn(
-        'rounded-lg font-medium transition-colors focus:outline-none focus:ring-2',
-        {
-          'bg-blue-500 hover:bg-blue-600 text-white focus:ring-blue-300': variant === 'primary',
-          'bg-gray-200 hover:bg-gray-300 text-gray-900 focus:ring-gray-300': variant === 'secondary',
-          'border border-gray-300 hover:bg-gray-50 text-gray-700 focus:ring-gray-300': variant === 'outline',
-          'px-3 py-1.5 text-sm': size === 'sm',
-          'px-4 py-2 text-base': size === 'md',
-          'px-6 py-3 text-lg': size === 'lg',
-        },
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-};
-</prestige-write>
+Please analyze the request and provide the appropriate implementation using prestige tags.`;
 
-<prestige-add-dependency packages="clsx tailwind-merge"></prestige-add-dependency>
+      const result = await streamText({
+        model,
+        system: finalSystemPrompt,
+        prompt: prompt,
+        maxTokens: 4000,
+        abortSignal: signal,
+      });
 
-<prestige-command type="rebuild"></prestige-command>
+      for await (const delta of result.textStream) {
+        if (signal.aborted) break;
+        yield delta;
+      }
+    } catch (error) {
+      console.error('AI streaming error:', error);
+      // Fallback response if AI service fails
+      const fallbackResponse = `I apologize, but I'm currently unable to connect to the AI service.
 
-<prestige-chat-summary>Created Button component with TypeScript and Tailwind CSS</prestige-chat-summary>`;
+Error: ${error instanceof Error ? error.message : String(error)}
 
-    // Split into chunks and yield
-    const chunks = mockResponse.split(' ');
-    let currentChunk = '';
+<prestige-chat-summary>AI service connection failed</prestige-chat-summary>`;
 
-    for (const word of chunks) {
-      if (signal.aborted) break;
-
-      currentChunk += word + ' ';
-
-      // Yield chunks at reasonable intervals
-      if (currentChunk.length > 50 || word.includes('\n')) {
-        yield currentChunk;
-        currentChunk = '';
+      const chunks = fallbackResponse.split(' ');
+      for (const chunk of chunks) {
+        if (signal.aborted) break;
+        yield chunk + ' ';
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-    }
-
-    if (currentChunk.trim()) {
-      yield currentChunk;
     }
   }
 
@@ -422,6 +402,8 @@ export const useEnhancedStreaming = () => {
       enableAggressiveFixes?: boolean;
       aiRequestFunction?: (prompt: string) => Promise<string>;
       affectedFiles?: string[];
+      selectedModel?: any;
+      systemPrompt?: string;
     } = {}
   ) => {
     const streamId = `enhanced_stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

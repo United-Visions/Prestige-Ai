@@ -1,9 +1,12 @@
 import React, { useMemo } from "react";
 import { PrestigeThinkBlock } from "./PrestigeThinkBlock";
 import { PrestigeWriteBlock } from "./PrestigeWriteBlock";
+import { PrestigeRenameBlock } from "./PrestigeRenameBlock";
+import { PrestigeDeleteBlock } from "./PrestigeDeleteBlock";
 import { PrestigeAddDependencyBlock } from "./PrestigeAddDependencyBlock";
 import { PrestigeCommandBlock } from "./PrestigeCommandBlock";
 import { PrestigeAddIntegrationBlock } from "./PrestigeAddIntegrationBlock";
+import { PrestigeCodebaseContextBlock } from "./PrestigeCodebaseContextBlock";
 import { PrestigeContentPiece, PrestigeTagInfo, PrestigeBlockState } from "./PrestigeBlockTypes";
 
 interface PrestigeBlockRendererProps {
@@ -92,6 +95,7 @@ export const PrestigeBlockRenderer: React.FC<PrestigeBlockRendererProps> = ({
 
   return (
     <div className="space-y-3">
+      {/* Render all content pieces in their original order - blocks inline with text */}
       {contentPieces.map((piece, index) => (
         <React.Fragment key={index}>
           {renderPrestigeBlock(piece, { isStreaming })}
@@ -116,6 +120,7 @@ function preprocessUnclosedTags(content: string): {
     "prestige-add-dependency",
     "prestige-command",
     "prestige-add-integration",
+    "prestige-codebase-context",
     "prestige-chat-summary",
     "think"
   ];
@@ -177,6 +182,7 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
     "prestige-add-dependency",
     "prestige-command",
     "prestige-add-integration",
+    "prestige-codebase-context",
     "prestige-chat-summary",
     "think"
   ];
@@ -216,7 +222,7 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
 
     // Check if this tag was marked as in progress
     const tagInProgressSet = inProgressTags.get(tag);
-    const isInProgress = tagInProgressSet?.has(startIndex);
+    const isInProgress = isStreaming && tagInProgressSet?.has(startIndex);
 
     // Create the appropriate content piece based on tag type
     switch (tag) {
@@ -280,6 +286,20 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
         });
         break;
 
+      case "prestige-codebase-context":
+        contentPieces.push({
+          type: "prestige-codebase-context",
+          contextType: attributes.type || "full-analysis",
+          templateId: attributes["template-id"],
+          files: attributes.files,
+          patterns: attributes.patterns,
+          query: attributes.query,
+          keep: attributes.keep,
+          content: tagContent,
+          inProgress: isInProgress || false
+        });
+        break;
+
       case "prestige-chat-summary":
         contentPieces.push({
           type: "prestige-chat-summary",
@@ -315,10 +335,17 @@ function getBlockState({
   isStreaming?: boolean;
   inProgress?: boolean;
 }): PrestigeBlockState {
+  // If not streaming, all blocks should be marked as finished
+  if (!isStreaming) {
+    return "finished";
+  }
+
+  // During streaming, check if the block is in progress
   if (!inProgress) {
     return "finished";
   }
-  return isStreaming ? "pending" : "aborted";
+
+  return "pending";
 }
 
 /**
@@ -356,6 +383,31 @@ function renderPrestigeBlock(
         >
           {piece.content}
         </PrestigeWriteBlock>
+      );
+
+    case "prestige-rename":
+      return (
+        <PrestigeRenameBlock
+          node={{
+            properties: {
+              from: piece.from,
+              to: piece.to,
+              state: getBlockState({ isStreaming, inProgress: piece.inProgress })
+            }
+          }}
+        />
+      );
+
+    case "prestige-delete":
+      return (
+        <PrestigeDeleteBlock
+          node={{
+            properties: {
+              path: piece.path,
+              state: getBlockState({ isStreaming, inProgress: piece.inProgress })
+            }
+          }}
+        />
       );
 
     case "prestige-add-dependency":
@@ -396,9 +448,38 @@ function renderPrestigeBlock(
         </PrestigeAddIntegrationBlock>
       );
 
+    case "prestige-codebase-context":
+      return (
+        <PrestigeCodebaseContextBlock
+          node={{
+            properties: {
+              contextType: piece.contextType,
+              templateId: piece.templateId,
+              files: piece.files,
+              patterns: piece.patterns,
+              query: piece.query,
+              keep: piece.keep,
+              state: getBlockState({ isStreaming, inProgress: piece.inProgress })
+            }
+          }}
+        >
+          {piece.content}
+        </PrestigeCodebaseContextBlock>
+      );
+
     case "prestige-chat-summary":
-      // Chat summary is typically not displayed to users
-      return <div className="hidden" data-chat-summary={piece.content} />;
+      // Show chat summary as a completed task summary - inline with content
+      return (
+        <div className="my-4 p-4 bg-gradient-to-r from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border border-green-200 dark:border-green-800 rounded-lg shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+            <span className="text-sm font-medium text-green-700 dark:text-green-300">✅ Task Completed</span>
+          </div>
+          <div className="text-sm text-green-600 dark:text-green-400 leading-relaxed">
+            {piece.content}
+          </div>
+        </div>
+      );
 
     case "markdown":
       return <PrestigeMarkdown content={piece.content} />;
