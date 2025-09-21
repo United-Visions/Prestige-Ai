@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChatMessage } from '@/components/chat/ChatMessage';
@@ -34,6 +34,25 @@ export function PrestigeChatArea({
   onStopGeneration,
   pendingUserMessage
 }: PrestigeChatAreaProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const smoothScrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    // Scroll when new tokens arrive
+    if (isStreamingResponse) {
+      smoothScrollToBottom();
+    }
+  }, [isStreamingResponse, streamingContent]);
+
+  useEffect(() => {
+    // Scroll when messages list changes (new user/assistant messages)
+    smoothScrollToBottom();
+  }, [currentConversation?.messages?.length, pendingUserMessage]);
   
   // No current app state
   if (!currentApp) {
@@ -82,7 +101,7 @@ export function PrestigeChatArea({
   
   // Active conversation
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-gray-50/50 to-blue-50/30 dark:from-gray-950/50 dark:to-blue-950/30">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-gray-50/50 to-blue-50/30 dark:from-gray-950/50 dark:to-blue-950/30">
       <div className="p-6 space-y-6">
         {/* Existing Messages */}
         {currentConversation?.messages?.map((message) => (

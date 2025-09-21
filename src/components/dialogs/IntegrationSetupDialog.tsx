@@ -12,21 +12,31 @@ import { Github, Database, Globe, ExternalLink, Copy, CheckCircle, Loader } from
 import { GitHubService } from '@/services/githubService';
 import { SupabaseService } from '@/services/supabaseService';
 import { VercelService } from '@/services/vercelService';
+import { MongoDBService } from '@/services/mongodbService';
+import AppStateManager from '@/services/appStateManager';
 
 interface IntegrationSetupDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  provider: 'github' | 'supabase' | 'vercel';
+  provider: 'github' | 'supabase' | 'mongodb' | 'vercel';
   onSuccess?: () => void;
+  currentApp?: { id: number; name: string; path?: string } | null;
 }
 
 const providerConfig = {
   github: {
     name: 'GitHub',
     icon: Github,
-    description: 'Connect your GitHub account for version control and deployment automation',
+    description: "Connect your GitHub account for version control and deployment automation",
     color: 'border-gray-300 bg-gray-50',
     iconColor: 'text-gray-600',
+  },
+  mongodb: {
+    name: 'MongoDB',
+    icon: Database,
+    description: 'Connect to MongoDB for a NoSQL database solution',
+    color: 'border-green-800 bg-green-50',
+    iconColor: 'text-green-800',
   },
   supabase: {
     name: 'Supabase',
@@ -48,12 +58,14 @@ export function IntegrationSetupDialog({
   isOpen,
   onClose,
   provider,
-  onSuccess
+  onSuccess,
+  currentApp
 }: IntegrationSetupDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authStep, setAuthStep] = useState<'start' | 'waiting' | 'success'>('start');
   const [authData, setAuthData] = useState<any>(null);
+  const [mongoConnectionString, setMongoConnectionString] = useState('');
 
   const config = providerConfig[provider];
   const Icon = config.icon;
@@ -63,11 +75,61 @@ export function IntegrationSetupDialog({
     setError(null);
     setAuthStep('start');
     setAuthData(null);
+    setMongoConnectionString('');
   };
 
   const handleClose = () => {
     resetState();
     onClose();
+  };
+
+  const handleMongoConnect = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const mongoDBService = MongoDBService.getInstance();
+      // Prefer auto-provisioned local demo DB
+      const uri = await mongoDBService.ensureLocalEphemeral();
+      if (!uri) {
+        throw new Error('Could not start local demo MongoDB. Please try again or provide a connection string.');
+      }
+
+      // Persist per-app DB settings if available
+      if (currentApp) {
+        try {
+          const appStateManager = AppStateManager.getInstance();
+          const vfs = await appStateManager.getVirtualFileSystem(currentApp as any);
+          const configPath = '.prestige/integrations.json';
+          const now = new Date().toISOString();
+          // Read existing config if present
+          let existing = '{}';
+          try {
+            const existingRead = await vfs.readFile(configPath);
+            if (existingRead) existing = existingRead;
+          } catch {}
+          let json: any = {};
+          try { json = JSON.parse(existing); } catch { json = {}; }
+          json.database = {
+            provider: 'mongodb',
+            mode: 'demo',
+            connectionString: uri,
+            updatedAt: now
+          };
+          await vfs.writeFile(configPath, JSON.stringify(json, null, 2));
+          await appStateManager.syncAppToDisk(currentApp as any);
+        } catch (persistErr) {
+          console.warn('Failed to persist DB settings:', persistErr);
+        }
+      }
+
+      setAuthStep('success');
+      onSuccess?.();
+      setTimeout(() => handleClose(), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Setup failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleStartAuth = async () => {
@@ -108,29 +170,27 @@ export function IntegrationSetupDialog({
         const supabaseService = SupabaseService.getInstance();
         const result = await supabaseService.startOAuthFlow();
         
-        // Open OAuth URL in external browser
-        // Note: electronAPI doesn't have openExternal, so we use window.open
         window.open(result.authUrl, '_blank');
         
         setAuthData(result);
         setAuthStep('waiting');
         
-        // In a real implementation, we'd listen for the OAuth callback
-        // For now, show instructions to complete setup manually
-        
       } else if (provider === 'vercel') {
-        // Vercel OAuth Flow  
         if (!VercelService) {
           throw new Error('Vercel service is not available');
         }
-        // For now, show coming soon message
         setError('Vercel integration setup is coming soon!');
+      } else if (provider === 'mongodb') {
+        // Directly attempt auto-provision of demo DB
+        await handleMongoConnect();
       }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
-      setIsLoading(false);
+      if (provider !== 'github') {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -161,9 +221,10 @@ export function IntegrationSetupDialog({
           {authStep === 'start' && (
             <div className="space-y-4">
               <div className="text-sm text-gray-600">
-                {provider === 'github' && 'We\'ll use GitHub\'s device flow to securely connect your account.'}
-                {provider === 'supabase' && 'You\'ll be redirected to Supabase to authorize the connection.'}
-                {provider === 'vercel' && 'Connect your Vercel account for deployment automation.'}
+                {provider === 'github' && "We'll use GitHub's device flow to securely connect your account."}
+                {provider === 'supabase' && "You'll be redirected to Supabase to authorize the connection."}
+                {provider === 'mongodb' && "We'll automatically create a local demo MongoDB database — no connection string needed."}
+                {provider === 'vercel' && "Connect your Vercel account for deployment automation."}
               </div>
               
               <Button
@@ -177,6 +238,8 @@ export function IntegrationSetupDialog({
               </Button>
             </div>
           )}
+
+          {/* No waiting step for MongoDB: we auto-provision demo DB */}
 
           {authStep === 'waiting' && provider === 'github' && authData && (
             <div className="space-y-4">
@@ -266,7 +329,7 @@ export function IntegrationSetupDialog({
             </div>
           )}
 
-          {authStep === 'start' && (
+          {authStep !== 'success' && (
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleClose}>
                 Cancel

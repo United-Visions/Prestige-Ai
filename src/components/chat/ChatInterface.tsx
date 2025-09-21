@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApiKeyDialog } from '@/components/ApiKeyDialog';
 import { ModelPreferencesDialog } from '@/components/ModelPreferencesDialog';
@@ -53,12 +53,16 @@ export function ChatInterface() {
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<Message | null>(null);
+  const firstChunkSeenRef = useRef(false);
 
   // Preview panel state
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
   // Enhanced streaming service
   const { startEnhancedStream, cancelStream } = useEnhancedStreaming();
+
+  // Agent is active when thinking or streaming
+  const isAgentActive = isGenerating || isStreamingResponse;
 
   useEffect(() => {
     loadApps();
@@ -197,8 +201,9 @@ export function ChatInterface() {
     setInput('');
     setIsGenerating(true);
     setError(null);
-    setStreamingContent('');
-    setIsStreamingResponse(false);
+  setStreamingContent('');
+  setIsStreamingResponse(false);
+  firstChunkSeenRef.current = false;
 
     const controller = new AbortController();
     setAbortController(controller);
@@ -270,8 +275,8 @@ export function ChatInterface() {
 
       const systemPrompt = await getSystemPrompt();
 
-      // Use enhanced streaming service with auto-fix capabilities
-      setIsStreamingResponse(true);
+  // Use enhanced streaming service with auto-fix capabilities
+  // Show thinking first; switch to streaming on first chunk
       let agentResponse = '';
 
       const aiRequestFunction = async (prompt: string) => {
@@ -286,6 +291,10 @@ export function ChatInterface() {
         systemPrompt,
         onChunk: (chunk: string, fullResponse: string) => {
           if (controller.signal.aborted) return;
+          if (!firstChunkSeenRef.current) {
+            firstChunkSeenRef.current = true;
+            setIsStreamingResponse(true);
+          }
           setStreamingContent(fullResponse);
         },
         onComplete: async (response: string) => {
@@ -318,6 +327,8 @@ export function ChatInterface() {
             const updatedConversation = await appService.getConversation(conversationId);
             const { setCurrentConversation } = useAppStore.getState();
             setCurrentConversation(updatedConversation);
+            // Clear pending user placeholder immediately once assistant message is committed
+            setPendingUserMessage(null);
 
           } catch (err) {
             console.error('Error processing response:', err);
@@ -327,13 +338,12 @@ export function ChatInterface() {
               createdAt: new Date()
             });
           } finally {
-            // Delay clearing streaming state to prevent visual gap
+            // Clear streaming flags shortly after content settles
             setTimeout(() => {
               setIsGenerating(false);
               setIsStreamingResponse(false);
               setStreamingContent('');
-              setPendingUserMessage(null); // Clear any remaining pending message
-            }, 100); // Small delay to allow UI to update
+            }, 50);
           }
         },
         onError: (error: Error) => {
@@ -342,6 +352,7 @@ export function ChatInterface() {
           setIsGenerating(false);
           setIsStreamingResponse(false);
           setStreamingContent('');
+          setPendingUserMessage(null);
         },
         onAutoFixNeeded: (fixPrompt: string) => {
           console.log('🔧 Auto-fix needed:', fixPrompt);
@@ -389,16 +400,18 @@ export function ChatInterface() {
       
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
-        {/* Prestige Brand Header - Hidden when preview is showing */}
+        {/* Prestige Brand Header - fade/collapse during agent activity; hidden when preview is showing */}
         {!showPreviewInChat && (
-          <PrestigeBrandHeader
-            currentApp={currentApp}
-            selectedModel={selectedModel}
-            setSelectedModel={setSelectedModel}
-            onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
-            onModelPreferencesOpen={() => setModelPreferencesDialogOpen(true)}
-            onPreviewApp={handlePreviewApp}
-          />
+          <div className={`collapse-fade ${isAgentActive ? 'hide' : 'show'}`}>
+            <PrestigeBrandHeader
+              currentApp={currentApp}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+              onApiKeyDialogOpen={() => setApiKeyDialogOpen(true)}
+              onModelPreferencesOpen={() => setModelPreferencesDialogOpen(true)}
+              onPreviewApp={handlePreviewApp}
+            />
+          </div>
         )}
 
         {/* Main Content Area - Hidden when preview is showing */}
@@ -444,20 +457,22 @@ export function ChatInterface() {
           </div>
         )}
 
-        {/* Enhanced Chat Input */}
-        <PrestigeChatInput
-          value={input}
-          onChange={setInput}
-          onSend={handleSendMessage}
-          disabled={isGenerating}
-          placeholder={
-            !currentApp 
-              ? "Describe your dream application..." 
-              : !currentConversation 
-                ? "Start building something amazing..." 
-                : "Continue the conversation..."
-          }
-        />
+        {/* Enhanced Chat Input - fade/collapse during agent activity */}
+        <div className={`collapse-fade ${isAgentActive ? 'hide' : 'show'}`}>
+          <PrestigeChatInput
+            value={input}
+            onChange={setInput}
+            onSend={handleSendMessage}
+            disabled={isAgentActive}
+            placeholder={
+              !currentApp 
+                ? "Describe your dream application..." 
+                : !currentConversation 
+                  ? "Start building something amazing..." 
+                  : "Continue the conversation..."
+            }
+          />
+        </div>
       </div>
 
       {/* API Key Dialog */}

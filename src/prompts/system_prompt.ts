@@ -82,6 +82,17 @@ You can suggest one of these commands by using the <prestige-command> tag like t
 
 If you output one of these commands, tell the user to look for the action button above the chat input.
 
+# Integrations & Database
+
+If your plan involves database access (queries, schema changes, auth, ORM), and the app is not yet connected to a database, emit a prompt for connection using:
+
+<prestige-prompt-db-connect>Explain why a DB is needed and suggest MongoDB or Supabase.</prestige-prompt-db-connect>
+
+You can also propose a specific integration using:
+
+<prestige-add-integration provider="mongodb"></prestige-add-integration>
+<prestige-add-integration provider="supabase"></prestige-add-integration>
+
 # Guidelines
 
 Always reply to the user in the same language they are using.
@@ -628,29 +639,38 @@ export const constructSystemPromptAsync = async ({
   let integrationPrompts = '';
   if (appPath && chatMode === "build") {
     try {
-      // Dynamic import for browser compatibility
-      const integrationModule = await import('@/services/integrationService');
-      const integrationService = integrationModule.integrationService;
-      
-      const integrationStatus = await integrationService.detectIntegrationStatus(appPath);
-      const prompts = integrationService.generateIntegrationPrompts(integrationStatus);
-      
-      // Combine integration prompts
-      integrationPrompts = [
-        prompts.github,
-        prompts.supabase,
-        prompts.vercel
-      ].filter(prompt => prompt.trim()).join('\n\n');
-      
+      const { integrationService } = await import('@/services/integrationService');
+      const { 
+        GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT,
+        SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
+        VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT,
+        GITHUB_AVAILABLE_SYSTEM_PROMPT,
+        SUPABASE_AVAILABLE_SYSTEM_PROMPT,
+        VERCEL_AVAILABLE_SYSTEM_PROMPT
+      } = await import('@/prompts/integration_prompts');
+
+      const blocks: string[] = [];
+
+      // GitHub
+      const gh = await integrationService.isGitHubConnected();
+      blocks.push(gh ? GITHUB_AVAILABLE_SYSTEM_PROMPT : GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT);
+
+      // Database (MongoDB preferred, else Supabase)
+      const db = await integrationService.getConnectedDatabase();
+      blocks.push(db === 'supabase' ? SUPABASE_AVAILABLE_SYSTEM_PROMPT : SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT);
+
+      // Vercel
+      const vc = await integrationService.isVercelConnected();
+      blocks.push(vc ? VERCEL_AVAILABLE_SYSTEM_PROMPT : VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT);
+
+      integrationPrompts = blocks.join('\n\n');
     } catch (error) {
-      console.warn('Error detecting integrations:', error);
-      // Fallback: add basic integration not available prompts
+      console.warn('Error building integration prompts:', error);
       const { 
         GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT,
         SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
         VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT 
       } = await import('@/prompts/integration_prompts');
-      
       integrationPrompts = [
         GITHUB_NOT_AVAILABLE_SYSTEM_PROMPT,
         SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,

@@ -103,6 +103,40 @@ app.whenReady().then(() => {
   try { ensureDb(); } catch { /* already logged */ }
 });
 
+// MongoDB (ephemeral) management in main process
+let mongoMemServer: any = null;
+
+ipcMain.handle('mongo:start-ephemeral', async () => {
+  try {
+    if (mongoMemServer) {
+      const uri = mongoMemServer.getUri();
+      return { ok: true, uri };
+    }
+    // Require here to keep it out of the renderer bundle
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { MongoMemoryServer } = require('mongodb-memory-server');
+    mongoMemServer = await MongoMemoryServer.create();
+    const uri = mongoMemServer.getUri();
+    return { ok: true, uri };
+  } catch (error: any) {
+    console.warn('mongo:start-ephemeral failed:', error);
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('mongo:stop-ephemeral', async () => {
+  try {
+    if (mongoMemServer) {
+      await mongoMemServer.stop();
+      mongoMemServer = null;
+    }
+    return { ok: true };
+  } catch (error: any) {
+    console.warn('mongo:stop-ephemeral failed:', error);
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
 // Database IPC handlers
 ipcMain.handle('db:get-apps', async () => {
   const db = ensureDb();

@@ -229,6 +229,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pull: (repoPath: string) => ipcRenderer.invoke('git:pull', repoPath),
   },
 
+  // MongoDB ephemeral controls
+  mongo: {
+    startEphemeral: (): Promise<{ ok: boolean; uri?: string; error?: string }> =>
+      ipcRenderer.invoke('mongo:start-ephemeral'),
+    stopEphemeral: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('mongo:stop-ephemeral'),
+  },
+
 })
 
 // Type definitions for the exposed API
@@ -355,6 +363,10 @@ declare global {
         getDiff: (repoPath: string, filePath: string, staged?: boolean) => Promise<string>
         pull: (repoPath: string) => Promise<any>
         clone: (url: string, targetPath: string, name?: string) => Promise<any>
+      }
+      mongo: {
+        startEphemeral: () => Promise<{ ok: boolean; uri?: string; error?: string }>
+        stopEphemeral: () => Promise<{ ok: boolean; error?: string }>
       }
     }
   }

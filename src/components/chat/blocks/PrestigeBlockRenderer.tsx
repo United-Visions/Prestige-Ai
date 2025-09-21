@@ -7,6 +7,7 @@ import { PrestigeAddDependencyBlock } from "./PrestigeAddDependencyBlock";
 import { PrestigeCommandBlock } from "./PrestigeCommandBlock";
 import { PrestigeAddIntegrationBlock } from "./PrestigeAddIntegrationBlock";
 import { PrestigeCodebaseContextBlock } from "./PrestigeCodebaseContextBlock";
+import { PrestigePromptDbConnectBlock } from "./PrestigePromptDbConnectBlock";
 import { PrestigeContentPiece, PrestigeTagInfo, PrestigeBlockState } from "./PrestigeBlockTypes";
 
 interface PrestigeBlockRendererProps {
@@ -121,6 +122,7 @@ function preprocessUnclosedTags(content: string): {
     "prestige-command",
     "prestige-add-integration",
     "prestige-codebase-context",
+    "prestige-prompt-db-connect",
     "prestige-chat-summary",
     "think"
   ];
@@ -183,6 +185,7 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
     "prestige-command",
     "prestige-add-integration",
     "prestige-codebase-context",
+    "prestige-prompt-db-connect",
     "prestige-chat-summary",
     "think"
   ];
@@ -304,6 +307,14 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
         contentPieces.push({
           type: "prestige-chat-summary",
           content: tagContent
+        });
+        break;
+
+      case "prestige-prompt-db-connect":
+        contentPieces.push({
+          type: "prestige-prompt-db-connect",
+          content: tagContent,
+          inProgress: isInProgress || false
         });
         break;
     }
@@ -483,6 +494,15 @@ function renderPrestigeBlock(
 
     case "markdown":
       return <PrestigeMarkdown content={piece.content} />;
+
+    case "prestige-prompt-db-connect":
+      return (
+        <PrestigePromptDbConnectBlock
+          node={{ properties: { state: getBlockState({ isStreaming, inProgress: piece.inProgress }) } }}
+        >
+          {piece.content}
+        </PrestigePromptDbConnectBlock>
+      );
 
     default:
       return null;

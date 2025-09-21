@@ -25,7 +25,8 @@ export type PrestigeContentPiece =
   | { type: "prestige-command"; commandType: string; inProgress?: boolean }
   | { type: "prestige-add-integration"; provider: string; content?: string; inProgress?: boolean }
   | { type: "prestige-codebase-context"; contextType: string; templateId?: string; files?: string; patterns?: string; query?: string; keep?: string; content?: string; inProgress?: boolean }
-  | { type: "prestige-chat-summary"; content: string };
+  | { type: "prestige-chat-summary"; content: string }
+  | { type: "prestige-prompt-db-connect"; content?: string; inProgress?: boolean };
 
 export interface PrestigeTagInfo {
   tag: string;

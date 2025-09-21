@@ -57,7 +57,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
   const [activeTab, setActiveTab] = useState<'connections' | 'actions'>('connections');
   const [setupDialogOpen, setSetupDialogOpen] = useState(false);
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<'github' | 'supabase' | 'vercel'>('github');
+  const [selectedProvider, setSelectedProvider] = useState<'github' | 'supabase' | 'vercel' | 'mongodb'>('github');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     github: { connected: false, loading: true },
     supabase: { connected: false, loading: true },
@@ -158,7 +158,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
     }
   };
 
-  const handleConnect = (provider: 'github' | 'supabase' | 'vercel') => {
+  const handleConnect = (provider: 'github' | 'supabase' | 'vercel' | 'mongodb') => {
     setSelectedProvider(provider);
     setSetupDialogOpen(true);
   };
@@ -228,13 +228,13 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
 
 
   const renderConnectionCard = (
-    provider: 'github' | 'supabase' | 'vercel',
+    provider: 'github' | 'supabase' | 'vercel' | 'mongodb',
     icon: React.ElementType,
     name: string,
     description: string,
     color: string
   ) => {
-    const status = connectionStatus[provider];
+    const status = connectionStatus?.[provider] ?? { connected: false, loading: true } as any;
     const Icon = icon;
 
     return (
@@ -251,9 +251,9 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
           </div>
           
           <div className="flex items-center gap-2">
-            {status.loading ? (
+            {status?.loading ? (
               <Badge variant="secondary">Checking...</Badge>
-            ) : status.connected ? (
+            ) : status?.connected ? (
               <Badge className="bg-green-100 text-green-800 border-green-300">
                 <CheckCircle className="w-3 h-3 mr-1" />
                 Connected
@@ -318,7 +318,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
           </div>
         )}
 
-        {!status.connected && !status.loading && (
+        {!status?.connected && !status?.loading && (
           <div className="mt-3 pt-3 border-t border-gray-200">
             <Button
               size="sm"
@@ -511,6 +511,13 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
                 )}
                 
                 {renderConnectionCard(
+                  'mongodb',
+                  Database,
+                  'MongoDB (Demo)',
+                  'Local demo database — zero config required',
+                  'border-emerald-300 bg-emerald-50'
+                )}
+                {renderConnectionCard(
                   'supabase',
                   Database,
                   'Supabase',
@@ -537,6 +544,7 @@ export function ToolsMenuDialog({ isOpen, onClose, currentApp }: ToolsMenuDialog
         isOpen={setupDialogOpen}
         onClose={() => setSetupDialogOpen(false)}
         provider={selectedProvider}
+        currentApp={(currentApp as any) || null}
         onSuccess={handleSetupSuccess}
       />
 

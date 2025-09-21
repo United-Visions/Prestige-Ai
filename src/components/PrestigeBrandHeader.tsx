@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { EnhancedModelPicker } from '@/components/EnhancedModelPicker';
 import { useTheme } from '@/components/theme-provider';
 import { ToolsMenuDialog } from '@/components/dialogs/ToolsMenuDialog';
+import { resolveAppPaths } from '@/utils/appPathResolver';
 import {
   Sparkles,
   Play,
@@ -36,6 +37,28 @@ export function PrestigeBrandHeader({
 }: PrestigeBrandHeaderProps) {
   const { theme, setTheme } = useTheme();
   const [toolsMenuOpen, setToolsMenuOpen] = React.useState(false);
+  const [dbStatus, setDbStatus] = React.useState<null | { provider?: string; mode?: string }>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadDb() {
+      try {
+        if (!currentApp) { setDbStatus(null); return; }
+        const appLike: any = { name: currentApp.name, path: currentApp.name };
+        const { filesPath } = await resolveAppPaths(appLike);
+        const p = await (window as any).electronAPI.path.join(filesPath, '.prestige', 'integrations.json');
+        const raw = await (window as any).electronAPI.fs.readFile(p, 'utf8');
+        const json = JSON.parse(raw || '{}');
+        if (!cancelled) {
+          setDbStatus(json?.database || null);
+        }
+      } catch {
+        if (!cancelled) setDbStatus(null);
+      }
+    }
+    loadDb();
+    return () => { cancelled = true; };
+  }, [currentApp?.name]);
 
   return (
     <div className="border-b bg-gradient-to-r from-background via-background to-background/95 backdrop-blur-xl">
@@ -75,6 +98,13 @@ export function PrestigeBrandHeader({
                     {currentApp.name}
                   </Badge>
                   <span className="text-xs text-muted-foreground">Active Project</span>
+                  {dbStatus?.provider && (
+                    <div className="mt-1">
+                      <Badge variant="outline" className="text-[10px]">
+                        DB: {dbStatus.provider}{dbStatus.mode ? ` (${dbStatus.mode})` : ''}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

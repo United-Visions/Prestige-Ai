@@ -48,3 +48,10 @@
 - Create proper folder structure
 - Include environment configuration templates
 - Add build and development scripts
+
+## Database & Integrations
+
+- Default Demo DB: MongoDB is the default for demo/local development. The agent can automatically create and connect to a local demo MongoDB instance without asking the user for a connection string.
+- No Connection String Prompts: If a user request requires a database and none is configured, the agent should auto-provision a demo MongoDB and continue. Only show a setup prompt if automatic provisioning fails.
+- Persistence: When the project is set to use MongoDB, the agent saves minimal per-project settings (e.g., provider: mongodb, mode: demo) so subsequent operations don’t require reconfiguration.
+- Production Later: Production database setup (e.g., managed MongoDB and deployment variables) can be added when deploying (e.g., to Vercel), but is not required for local/demo workflows.

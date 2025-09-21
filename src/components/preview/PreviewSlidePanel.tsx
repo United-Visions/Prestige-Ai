@@ -217,7 +217,7 @@ export function PreviewSlidePanel({
     setShowErrorDialog(false);
   };
 
-  const handleOutput = (output: AppOutput) => {
+  function handleOutput(output: AppOutput) {
     // Use functional update to avoid potential performance issues
     setOutputs(prev => {
       // Limit output history to prevent memory issues (keep last 1000 entries)
@@ -253,9 +253,9 @@ export function PreviewSlidePanel({
       setOriginalUrl(originalUrl);
       setIframeKey(prev => prev + 1); // Force iframe refresh
     }
-  };
+  }
 
-  const handleError = (error: AppError) => {
+  function handleError(error: AppError) {
     setErrors(prev => {
       // Limit error history to prevent memory issues (keep last 100 entries)
       const newErrors = [...prev, error];
@@ -278,9 +278,9 @@ export function PreviewSlidePanel({
 
       return limitedErrors;
     });
-  };
+  }
 
-  const startApp = async () => {
+  async function startApp() {
     if (!currentApp?.id) return;
 
     // Set loading state immediately to provide instant feedback
@@ -318,7 +318,7 @@ export function PreviewSlidePanel({
         setIsStarting(false);
       }
     }, 0);
-  };
+  }
 
   const stopApp = async () => {
     if (!currentApp?.id) return;

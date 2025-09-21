@@ -7,6 +7,8 @@ import { resolveAppPaths } from '@/utils/appPathResolver';
 import { AsyncVirtualFileSystem, VirtualChanges, type VirtualFile } from '@/shared/VirtualFilesystem';
 import AppStateManager from '@/services/appStateManager';
 import { GitStatusService } from '@/services/gitStatusService';
+import { integrationService } from '@/services/integrationService';
+import { MongoDBService } from '@/services/mongodbService';
 
 interface FileOperation {
   type: 'write' | 'rename' | 'delete';
@@ -101,6 +103,23 @@ export async function processContinuousAgentResponse(response: string) {
   if (!currentApp) {
     showError("No application selected. Please create or select an app first.");
     return { chatContent: response, chatSummary: '' };
+  }
+
+  // Check for database-related operations if not connected
+  const dbKeywords = ['database', 'schema', 'query', 'sql', 'mongodb', 'supabase'];
+  const requiresDb = dbKeywords.some(keyword => response.toLowerCase().includes(keyword));
+
+  if (requiresDb) {
+    const connectedDb = await integrationService.getConnectedDatabase();
+    if (!connectedDb) {
+      // Try to auto-provision a local ephemeral MongoDB instance
+      const mongo = MongoDBService.getInstance();
+      const autoUri = await mongo.ensureLocalEphemeral();
+      if (!autoUri) {
+        const promptMessage = `<prestige-prompt-db-connect>This operation requires a database connection. Please connect MongoDB or Supabase in the Developer Tools & Integrations menu.</prestige-prompt-db-connect>`;
+        return { chatContent: promptMessage, chatSummary: 'Database connection required' };
+      }
+    }
   }
 
   // Get virtual filesystem for this app using state manager
