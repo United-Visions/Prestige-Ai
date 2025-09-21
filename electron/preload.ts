@@ -102,6 +102,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteMessage: (messageId: number): Promise<void> => ipcRenderer.invoke('db:delete-message', messageId),
     renameApp: (appId: number, newName: string): Promise<void> => ipcRenderer.invoke('db:rename-app', appId, newName),
     createConversation: (conversation: any): Promise<number> => ipcRenderer.invoke('db:create-conversation', conversation),
+    // Development plans
+    getPlansForConversation: (conversationId: number): Promise<any[]> => ipcRenderer.invoke('db:get-plans-for-conversation', conversationId),
+    getUnfinishedPlansForApp: (appId: number): Promise<any[]> => ipcRenderer.invoke('db:get-unfinished-plans-for-app', appId),
+    upsertPlan: (plan: any): Promise<any> => ipcRenderer.invoke('db:upsert-plan', plan),
   },
 
   // Advanced app management
@@ -300,6 +304,9 @@ declare global {
         deleteMessage: (messageId: number) => Promise<void>
         renameApp: (appId: number, newName: string) => Promise<void>
         createConversation: (conversation: any) => Promise<number>
+        getPlansForConversation: (conversationId: number) => Promise<any[]>
+        getUnfinishedPlansForApp: (appId: number) => Promise<any[]>
+        upsertPlan: (plan: any) => Promise<any>
       }
       advancedApp: {
         run: (appId: number, appPath: string) => Promise<{ proxyUrl?: string }>

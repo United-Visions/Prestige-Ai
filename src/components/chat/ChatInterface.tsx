@@ -17,6 +17,7 @@ import { PrestigeChatInput } from '@/components/PrestigeChatInput';
 import { ChatPreviewPanel } from './ChatPreviewPanel';
 import { PreviewSlidePanel } from '@/components/preview/PreviewSlidePanel';
 import { PreviewTab } from '@/components/preview/PreviewTab';
+import { TodoSideView } from '@/components/todo/TodoSideView';
 import { constructSystemPromptAsync, readAiRules } from '@/prompts/system_prompt';
 import { aiModelServiceV2 as aiModelService, StreamChunk } from '@/services/aiModelService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
@@ -26,6 +27,7 @@ import { PrestigeMarkdownRenderer } from './PrestigeMarkdownRenderer';
 import { supportsThinking } from '@/utils/thinking';
 import type { Message } from '@/types';
 import { useEnhancedStreaming } from '@/services/enhancedStreamingService';
+import { autoModeService } from '@/services/autoModeService';
 
 export function ChatInterface() {
   const {
@@ -54,6 +56,9 @@ export function ChatInterface() {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<Message | null>(null);
   const firstChunkSeenRef = useRef(false);
+  const continuationActiveRef = useRef(false);
+  const [dismissedResumeBanner, setDismissedResumeBanner] = useState(false);
+  const [resumeBriefs, setResumeBriefs] = useState([]);
 
   // Preview panel state
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
@@ -67,6 +72,18 @@ export function ChatInterface() {
   useEffect(() => {
     loadApps();
   }, [loadApps]);
+
+  // Load resume briefs when app changes
+  useEffect(() => {
+    if (currentApp && currentConversation && !dismissedResumeBanner) {
+      autoModeService.getUnfinishedPlansForApp(currentApp.id).then(briefs => {
+        const other = briefs.filter(b => b.conversationId !== currentConversation.id);
+        setResumeBriefs(other);
+      });
+    } else {
+      setResumeBriefs([]);
+    }
+  }, [currentApp, currentConversation, dismissedResumeBanner]);
 
   // Listen for API key dialog events from CodeViewerPanel
   useEffect(() => {
@@ -211,6 +228,7 @@ export function ChatInterface() {
     try {
       let conversationId: number;
       let currentMessages: Message[] = [];
+      let appIdForPlan: number | null = null;
 
       if (!currentApp) {
         const { setCurrentApp } = useAppStore.getState();
@@ -219,8 +237,10 @@ export function ChatInterface() {
         const { conversationId: newConversationId } = await createApp(content);
         conversationId = newConversationId;
         const appService = AdvancedAppManagementService.getInstance();
-        const conversation = await appService.getConversation(newConversationId);
+  const conversation = await appService.getConversation(newConversationId);
         currentMessages = conversation?.messages || [];
+  const app = await appService.getApp(conversation?.appId || 0);
+  appIdForPlan = app?.id || null;
         
         if (!currentMessages.some(m => m.role === 'user' && m.content === content)) {
           currentMessages.push({
@@ -233,7 +253,8 @@ export function ChatInterface() {
         }
       } else if (!currentConversation) {
         const newConversation = await createConversation(currentApp.id, undefined, 'Conversation');
-        conversationId = newConversation.id;
+  conversationId = newConversation.id;
+  appIdForPlan = currentApp.id;
         
         // Add user message to the new conversation
         await addMessage(conversationId, { 
@@ -257,7 +278,8 @@ export function ChatInterface() {
           role: 'user',
           createdAt: new Date()
         });
-        conversationId = currentConversation.id;
+  conversationId = currentConversation.id;
+  appIdForPlan = currentApp.id;
         
         // Get current messages and ensure they're properly ordered
         const appService = AdvancedAppManagementService.getInstance();
@@ -275,6 +297,20 @@ export function ChatInterface() {
 
       const systemPrompt = await getSystemPrompt();
 
+      // Ensure a development plan exists for this conversation
+      const existingPlans = await autoModeService.getPlans(conversationId);
+      let activePlan = existingPlans[0];
+      if (!activePlan && appIdForPlan && selectedModel) {
+        activePlan = await autoModeService.generatePlanForConversation(
+          appIdForPlan,
+          conversationId,
+          selectedModel,
+          systemPrompt,
+          currentMessages,
+          content
+        );
+      }
+
   // Use enhanced streaming service with auto-fix capabilities
   // Show thinking first; switch to streaming on first chunk
       let agentResponse = '';
@@ -286,6 +322,7 @@ export function ChatInterface() {
         ]);
       };
 
+      continuationActiveRef.current = !!activePlan;
       await startEnhancedStream(content, {
         selectedModel,
         systemPrompt,
@@ -338,11 +375,13 @@ export function ChatInterface() {
               createdAt: new Date()
             });
           } finally {
-            // Clear streaming flags shortly after content settles
+            // Clear streaming flags if not in continuation loop
             setTimeout(() => {
-              setIsGenerating(false);
-              setIsStreamingResponse(false);
-              setStreamingContent('');
+              if (!continuationActiveRef.current) {
+                setIsGenerating(false);
+                setIsStreamingResponse(false);
+                setStreamingContent('');
+              }
             }, 50);
           }
         },
@@ -359,7 +398,27 @@ export function ChatInterface() {
         },
         enableAutoFix: true,
         enableAggressiveFixes: true,
-        aiRequestFunction
+        aiRequestFunction,
+        continuation: activePlan ? { conversationId, planId: activePlan.id } : undefined,
+        onContinuationDone: async () => {
+          // Summarize recent completions and remaining
+          const plans = await autoModeService.getPlans(conversationId);
+          const plan = plans.find(p => p.id === (activePlan?.id || '')) || plans[0];
+          if (plan) {
+            const completed = plan.phases
+              .flatMap(p => p.todos.map(t => ({ ...t, phase: p.title })))
+              .filter(t => t.completedAt)
+              .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))
+              .slice(0, 5);
+            const remaining = plan.phases.flatMap(p => p.todos).filter(t => t.status !== 'completed').length;
+            const md = `<details><summary>Recently Completed ToDos</summary>\n\n${completed.map(t => `- [x] ${t.title} _(phase: ${t.phase})_`).join('\n')}\n\nRemaining: ${remaining}\n</details>`;
+            await addMessage(conversationId, { content: md, role: 'assistant', createdAt: new Date() });
+          }
+          continuationActiveRef.current = false;
+          setIsGenerating(false);
+          setIsStreamingResponse(false);
+          setStreamingContent('');
+        }
       });
 
 
@@ -367,9 +426,11 @@ export function ChatInterface() {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
     } finally {
-      setIsGenerating(false);
-      setIsStreamingResponse(false);
-      setStreamingContent('');
+      if (!continuationActiveRef.current) {
+        setIsGenerating(false);
+        setIsStreamingResponse(false);
+        setStreamingContent('');
+      }
       setAbortController(null);
     }
   };
@@ -399,7 +460,9 @@ export function ChatInterface() {
       <AppSidebar />
       
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex">
+        {/* Main column */}
+        <div className="flex-1 flex flex-col">
         {/* Prestige Brand Header - fade/collapse during agent activity; hidden when preview is showing */}
         {!showPreviewInChat && (
           <div className={`collapse-fade ${isAgentActive ? 'hide' : 'show'}`}>
@@ -426,6 +489,65 @@ export function ChatInterface() {
               />
             ) : (
               <>
+                {/* Resume suggestion banner for unfinished plans across conversations */}
+                {currentApp && currentConversation && !dismissedResumeBanner && resumeBriefs.length > 0 && (
+                  <div className="px-6 mb-2">
+                    <Card>
+                      <CardContent className="p-3 text-sm flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-muted-foreground">I noticed unfinished plans in other conversations. Continue one?</div>
+                          <button
+                            onClick={() => setDismissedResumeBanner(true)}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {resumeBriefs.slice(0,3).map(b => (
+                            <button
+                              key={b.planId}
+                              className="px-3 py-1 rounded-md border text-xs hover:bg-muted"
+                              onClick={async () => {
+                                const plans = await autoModeService.getPlans(b.conversationId);
+                                const src = plans.find(p => p.id === b.planId);
+                                if (!src || !currentConversation) return;
+                                const cloned = await autoModeService.clonePlanToConversation(src, currentConversation.id);
+                                setIsGenerating(true);
+                                setError(null);
+                                firstChunkSeenRef.current = false;
+                                continuationActiveRef.current = true;
+                                const systemPrompt = await getSystemPrompt();
+                                await startEnhancedStream(`Resume plan: ${cloned.title}`, {
+                                  selectedModel,
+                                  systemPrompt,
+                                  onChunk: (chunk, full) => {
+                                    if (!firstChunkSeenRef.current) {
+                                      firstChunkSeenRef.current = true;
+                                      setIsStreamingResponse(true);
+                                    }
+                                    setStreamingContent(full);
+                                  },
+                                  onComplete: async () => {},
+                                  onError: (e) => { setError(e.message); },
+                                  continuation: { conversationId: currentConversation.id, planId: cloned.id },
+                                  onContinuationDone: async () => {
+                                    continuationActiveRef.current = false;
+                                    setIsGenerating(false);
+                                    setIsStreamingResponse(false);
+                                    setStreamingContent('');
+                                  }
+                                });
+                              }}
+                            >
+                              {b.title} • {b.remainingCount} left
+                            </button>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
                 <PrestigeChatArea
                   currentApp={currentApp}
                   currentConversation={currentConversation}
@@ -473,6 +595,12 @@ export function ChatInterface() {
             }
           />
         </div>
+        </div>
+
+        {/* Right side ToDo view (visible when app/conversation) */}
+        {currentApp && currentConversation && (
+          <TodoSideView />
+        )}
       </div>
 
       {/* API Key Dialog */}

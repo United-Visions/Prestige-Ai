@@ -211,6 +211,39 @@ ipcMain.handle('db:create-conversation', async (_, conversation) => {
   return newConversation.id;
 });
 
+// Dev plans persistence
+ipcMain.handle('db:get-plans-for-conversation', async (_, conversationId: number) => {
+  const db = ensureDb();
+  return db.select().from(schema.dev_plans).where(eq(schema.dev_plans.conversationId, conversationId));
+});
+
+ipcMain.handle('db:get-unfinished-plans-for-app', async (_, appId: number) => {
+  const db = ensureDb();
+  const plans = await db.select().from(schema.dev_plans).where(eq(schema.dev_plans.appId, appId));
+  return plans;
+});
+
+ipcMain.handle('db:upsert-plan', async (_, plan: any) => {
+  const db = ensureDb();
+  // Try update, if no rows then insert
+  const updated = await db.update(schema.dev_plans)
+    .set({
+      appId: plan.appId,
+      conversationId: plan.conversationId,
+      title: plan.title,
+      summary: plan.summary,
+      phases: plan.phases,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.dev_plans.id, plan.id))
+    .run();
+  if ((updated as any)?.changes === 0) {
+    const [inserted] = await db.insert(schema.dev_plans).values(plan).returning();
+    return inserted;
+  }
+  return plan;
+});
+
 // File system IPC handlers
 ipcMain.handle('fs:read-file', async (_, filePath: string): Promise<string> => {
   try {

@@ -46,8 +46,18 @@ export function PrestigeAddIntegration({
   isEnabled = false 
 }: PrestigeAddIntegrationProps) {
   const [setupDialogOpen, setSetupDialogOpen] = useState(false);
-  const config = providerConfig[provider];
-  const Icon = config.icon;
+  const config = provider && (provider in providerConfig)
+    ? providerConfig[provider]
+    : {
+        name: 'Integration',
+        icon: Settings,
+        description: 'Add an integration',
+        setupText: 'Configure integration settings to continue.',
+        color: 'border-gray-300 bg-gray-50',
+        iconColor: 'text-gray-600',
+        buttonColor: 'bg-gray-800 hover:bg-gray-900 text-white',
+      };
+  const Icon = config.icon || Settings;
 
   const handleSetupClick = () => {
     setSetupDialogOpen(true);

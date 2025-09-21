@@ -94,6 +94,21 @@ export const appFilesRelations = relations(app_files, ({ one }) => ({
   }),
 }));
 
+// Development plans persisted with phases/todos as JSON
+export const dev_plans = sqliteTable('dev_plans', {
+  id: text('id').primaryKey(),
+  appId: integer('app_id').notNull().references(() => apps.id, { onDelete: 'cascade' }),
+  conversationId: integer('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
+  title: text('title'),
+  summary: text('summary'),
+  phases: text('phases', { mode: 'json' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export type DevPlan = typeof dev_plans.$inferSelect;
+export type NewDevPlan = typeof dev_plans.$inferInsert;
+
 // Types derived from schema
 export type App = typeof apps.$inferSelect;
 export type NewApp = typeof apps.$inferInsert;

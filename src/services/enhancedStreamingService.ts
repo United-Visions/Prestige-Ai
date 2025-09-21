@@ -2,6 +2,7 @@ import { useStreamingErrorDetection } from '../hooks/useRealTimeErrorDetection';
 import { useStreamingAgentProcessor } from './streamingAgentProcessor';
 import { prestigeAutoFixService } from './prestigeAutoFixService';
 import { processAgentResponse } from './agentResponseProcessor';
+import { autoModeService } from './autoModeService';
 import useAppStore from '@/stores/appStore';
 import { resolveAppPaths } from '@/utils/appPathResolver';
 import { showSuccess, showError, showInfo } from '@/utils/toast';
@@ -14,6 +15,7 @@ export class EnhancedStreamingService {
   private static instance: EnhancedStreamingService;
   private activeStreams: Map<string, AbortController> = new Map();
   private autoFixStreams: Map<string, boolean> = new Map();
+  private continuationByStream: Map<string, { conversationId: number; planId: string } | undefined> = new Map();
 
   public static getInstance(): EnhancedStreamingService {
     if (!EnhancedStreamingService.instance) {
@@ -39,6 +41,9 @@ export class EnhancedStreamingService {
       affectedFiles?: string[];
       selectedModel?: any;
       systemPrompt?: string;
+      // Auto-continue options
+      continuation?: { conversationId: number; planId: string };
+      onContinuationDone?: () => void;
     } = {}
   ): Promise<void> {
     const {
@@ -55,6 +60,9 @@ export class EnhancedStreamingService {
     // Create abort controller for this stream
     const abortController = new AbortController();
     this.activeStreams.set(streamId, abortController);
+    if (options.continuation) {
+      this.continuationByStream.set(streamId, options.continuation);
+    }
 
     let fullResponse = '';
     let autoFixAttempts = 0;
@@ -135,6 +143,13 @@ export class EnhancedStreamingService {
       onComplete?.(fullResponse);
       showSuccess(`✅ Stream ${streamId} completed successfully`);
 
+      // Auto-continue loop: work through plan todos until completion or abort
+      const cont = this.continuationByStream.get(streamId);
+      if (cont) {
+        await this.continuePlanUntilDone(streamId, cont.conversationId, cont.planId, options);
+        options.onContinuationDone?.();
+      }
+
     } catch (error) {
       console.error(`❌ Enhanced streaming error for ${streamId}:`, error);
       onError?.(error as Error);
@@ -143,6 +158,66 @@ export class EnhancedStreamingService {
       // Clean up
       this.activeStreams.delete(streamId);
       this.autoFixStreams.delete(streamId);
+      this.continuationByStream.delete(streamId);
+    }
+  }
+
+  private async continuePlanUntilDone(
+    parentStreamId: string,
+    conversationId: number,
+    planId: string,
+    options: {
+      onChunk?: (chunk: string, fullResponse: string) => void;
+      onError?: (error: Error) => void;
+      onComplete?: (response: string) => void;
+      aiRequestFunction?: (prompt: string) => Promise<string>;
+      selectedModel?: any;
+      systemPrompt?: string;
+    }
+  ) {
+    // Repeat until no pending todos or aborted
+    let next = await autoModeService.getNextPendingTodo(conversationId, planId);
+    while (next) {
+      const controller = new AbortController();
+      const streamId = `${parentStreamId}__cont_${Date.now()}`;
+      this.activeStreams.set(streamId, controller);
+
+      const prompt = `Continue development by implementing the next todo.
+Plan: ${planId}
+Phase: ${next.phase}
+Todo: ${next.todo.title}
+${next.todo.description ? `Details: ${next.todo.description}` : ''}
+
+Use prestige tags to modify files and run commands.`;
+
+      try {
+        await this.startEnhancedStream(streamId, prompt, {
+          onChunk: options.onChunk,
+          onError: options.onError,
+          onComplete: options.onComplete,
+          aiRequestFunction: options.aiRequestFunction,
+          selectedModel: options.selectedModel,
+          systemPrompt: options.systemPrompt,
+        });
+
+        // After completion, mark todo as completed
+        await autoModeService.markTodo(conversationId, planId, next.todo.id, 'completed');
+      } catch (e) {
+        options.onError?.(e as Error);
+        break;
+      } finally {
+        this.activeStreams.delete(streamId);
+      }
+
+      // Check next pending
+      next = await autoModeService.getNextPendingTodo(conversationId, planId);
+
+      // Prevent tight loop; yield a beat
+      await new Promise(r => setTimeout(r, 150));
+
+      // Stop if parent was aborted
+      const parent = this.activeStreams.get(parentStreamId);
+      if (!parent) break;
     }
   }
 
@@ -330,7 +405,6 @@ Please analyze the request and provide the appropriate implementation using pres
         model,
         system: finalSystemPrompt,
         prompt: prompt,
-        maxTokens: 4000,
         abortSignal: signal,
       });
 
@@ -404,6 +478,8 @@ export const useEnhancedStreaming = () => {
       affectedFiles?: string[];
       selectedModel?: any;
       systemPrompt?: string;
+      continuation?: { conversationId: number; planId: string };
+      onContinuationDone?: () => void;
     } = {}
   ) => {
     const streamId = `enhanced_stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
