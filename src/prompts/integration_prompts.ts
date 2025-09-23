@@ -178,20 +178,68 @@ export const VERCEL_AVAILABLE_SYSTEM_PROMPT = `
 
 The user has Vercel available for their app, so use it for any deployment, hosting, or serverless function needs.
 
+You can use these Prestige tags for Vercel operations:
+
+## Deployment Tags
+
+### Deploy to Vercel
+\`\`\`html
+<prestige-deploy-vercel app-id="123">Deploy to production</prestige-deploy-vercel>
+\`\`\`
+
+### Create Vercel Project from GitHub
+\`\`\`html
+<prestige-create-vercel-project repo-url="https://github.com/user/repo" project-name="my-app">
+Create and connect Vercel project
+</prestige-create-vercel-project>
+\`\`\`
+
+### Setup Complete Deployment Pipeline
+\`\`\`html
+<prestige-setup-deployment provider="vercel" auto-connect="true">
+Set up GitHub → Vercel deployment pipeline
+</prestige-setup-deployment>
+\`\`\`
+
+## Workflow Integration
+
 When implementing Vercel integration features, always ensure:
-- Deployment configuration and optimization
-- Environment variable management
-- Serverless function setup
-- Edge function implementation
-- Analytics and monitoring setup
+- GitHub repository is connected first (for automatic deployments)
+- Environment variables are synced automatically
+- Deployment status is tracked and reported
+- Production URLs are provided to users
 
 The Vercel integration enables:
 - Automatic deployment from Git repositories
+- Environment variable synchronization
+- Real-time deployment status tracking
+- Production URL generation
 - Serverless function deployment
 - Edge function capabilities
-- Built-in analytics and monitoring
-- Environment variable management
-- Custom domain configuration
+
+## Smart Deployment Flow
+
+If user wants to deploy:
+1. Check if GitHub is connected - if not, suggest connecting first
+2. Check if Vercel is connected - if not, suggest adding Vercel integration
+3. If both are connected, proceed with deployment
+4. Auto-sync environment variables during deployment
+5. Track deployment status and notify user when ready
+
+Example response for deployment request:
+\`\`\`
+I'll set up a complete deployment pipeline for your app:
+
+<prestige-setup-deployment provider="vercel" auto-connect="true">
+Setting up GitHub → Vercel deployment pipeline
+</prestige-setup-deployment>
+
+This will:
+- Connect your GitHub repository to Vercel
+- Sync environment variables automatically  
+- Enable automatic deployments on every push
+- Provide you with a production URL
+\`\`\`
 `;
 
 export const VERCEL_NOT_AVAILABLE_SYSTEM_PROMPT = `

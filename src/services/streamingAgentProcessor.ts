@@ -173,6 +173,47 @@ export class StreamingAgentProcessor {
       });
     }
 
+    // Parse Vercel deployment operations
+    const deployRegex = /<prestige-deploy-vercel(?:\s+app-id="([^"]+)")?(?:\s*>([\s\S]*?)(?:<\/prestige-deploy-vercel>|$))?/g;
+    while ((match = deployRegex.exec(response)) !== null) {
+      operations.push({
+        id: `deploy_${Date.now()}_${Math.random()}`,
+        type: 'deploy-vercel',
+        appId: match[1] ? parseInt(match[1]) : undefined,
+        content: match[2]?.trim() || '',
+        state: this.isTagComplete(match[0]) ? 'finished' : 'pending',
+        startIndex: match.index
+      });
+    }
+
+    // Parse Vercel project creation operations
+    const createProjectRegex = /<prestige-create-vercel-project(?:\s+repo-url="([^"]+)")?(?:\s+project-name="([^"]+)")?(?:\s*>([\s\S]*?)(?:<\/prestige-create-vercel-project>|$))?/g;
+    while ((match = createProjectRegex.exec(response)) !== null) {
+      operations.push({
+        id: `create_project_${Date.now()}_${Math.random()}`,
+        type: 'create-vercel-project',
+        repoUrl: match[1],
+        projectName: match[2],
+        content: match[3]?.trim() || '',
+        state: this.isTagComplete(match[0]) ? 'finished' : 'pending',
+        startIndex: match.index
+      });
+    }
+
+    // Parse setup deployment pipeline operations
+    const setupPipelineRegex = /<prestige-setup-deployment(?:\s+provider="([^"]+)")?(?:\s+auto-connect="([^"]+)")?(?:\s*>([\s\S]*?)(?:<\/prestige-setup-deployment>|$))?/g;
+    while ((match = setupPipelineRegex.exec(response)) !== null) {
+      operations.push({
+        id: `setup_pipeline_${Date.now()}_${Math.random()}`,
+        type: 'setup-deployment',
+        provider: match[1] || 'vercel',
+        autoConnect: match[2] === 'true',
+        content: match[3]?.trim() || '',
+        state: this.isTagComplete(match[0]) ? 'finished' : 'pending',
+        startIndex: match.index
+      });
+    }
+
     // Parse rename operations
     const renameRegex = /<prestige-rename from="([^"]+)" to="([^"]+)"(?:\s*>(?:\s*<\/prestige-rename>|$))?/g;
     while ((match = renameRegex.exec(response)) !== null) {
@@ -382,6 +423,18 @@ export class StreamingAgentProcessor {
         }
         break;
 
+      case 'deploy-vercel':
+        await this.executeVercelDeployment(op, currentApp);
+        break;
+
+      case 'create-vercel-project':
+        await this.executeCreateVercelProject(op, currentApp);
+        break;
+
+      case 'setup-deployment':
+        await this.executeSetupDeployment(op, currentApp);
+        break;
+
       case 'codebase-context':
         if (op.contextRequest) {
           await this.executeContextOperation(op.contextRequest);
@@ -418,6 +471,142 @@ export class StreamingAgentProcessor {
   }
 
   /**
+   * Execute Vercel deployment operation
+   */
+  private async executeVercelDeployment(op: PrestigeStreamingOperation, currentApp: any): Promise<void> {
+    try {
+      showInfo(`🚀 Deploying ${currentApp.name} to Vercel...`);
+
+      const { vercelService } = await import('./vercelService');
+      
+      if (!vercelService.isAuthenticated()) {
+        showError('Vercel not connected. Please connect Vercel first.');
+        return;
+      }
+
+      // If app doesn't have a Vercel project, suggest creating one
+      if (!currentApp.vercelProjectId) {
+        showInfo('Creating Vercel project...');
+        
+        // Check if app has GitHub URL for automatic connection
+        if (currentApp.githubUrl) {
+          const result = await vercelService.connectGitHubRepo(
+            currentApp.id,
+            currentApp.githubUrl,
+            currentApp.name
+          );
+          
+          if (result.success) {
+            showSuccess(`✅ Vercel project created and connected to GitHub!`);
+            showInfo(`🌐 Deployment URL: ${result.deploymentUrl}`);
+          } else {
+            showError(`Failed to create Vercel project: ${result.error}`);
+          }
+        } else {
+          showError('No GitHub repository found. Connect to GitHub first.');
+        }
+      } else {
+        // Trigger new deployment
+        showSuccess(`🚀 Deployment triggered for ${currentApp.name}`);
+      }
+    } catch (error) {
+      console.error('Vercel deployment failed:', error);
+      showError(`Deployment failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Execute create Vercel project operation
+   */
+  private async executeCreateVercelProject(op: PrestigeStreamingOperation, currentApp: any): Promise<void> {
+    try {
+      const { vercelService } = await import('./vercelService');
+      
+      if (!vercelService.isAuthenticated()) {
+        showError('Vercel not connected. Please connect Vercel first.');
+        return;
+      }
+
+      showInfo(`🔨 Creating Vercel project for ${op.projectName || currentApp.name}...`);
+
+      const repoUrl = op.repoUrl || currentApp.githubUrl;
+      if (!repoUrl) {
+        showError('No repository URL found. Connect to GitHub first.');
+        return;
+      }
+
+      const result = await vercelService.connectGitHubRepo(
+        currentApp.id,
+        repoUrl,
+        op.projectName || currentApp.name
+      );
+
+      if (result.success) {
+        showSuccess(`✅ Vercel project created: ${result.project?.name}`);
+        showInfo(`🌐 URL: ${result.deploymentUrl}`);
+      } else {
+        showError(`Failed to create Vercel project: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Create Vercel project failed:', error);
+      showError(`Project creation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Execute setup deployment pipeline operation
+   */
+  private async executeSetupDeployment(op: PrestigeStreamingOperation, currentApp: any): Promise<void> {
+    try {
+      showInfo(`⚙️ Setting up deployment pipeline...`);
+
+      const { githubService } = await import('./githubService');
+      const { vercelService } = await import('./vercelService');
+
+      // Check GitHub connection
+      if (!githubService.isAuthenticated()) {
+        showError('GitHub not connected. Please connect GitHub first for version control.');
+        return;
+      }
+
+      // Check Vercel connection
+      if (!vercelService.isAuthenticated()) {
+        showError('Vercel not connected. Please connect Vercel first for deployment.');
+        return;
+      }
+
+      // If auto-connect is enabled, set up the full pipeline
+      if (op.autoConnect) {
+        showInfo('🔗 Connecting GitHub repository to Vercel...');
+        
+        if (currentApp.githubUrl) {
+          const result = await vercelService.connectGitHubRepo(
+            currentApp.id,
+            currentApp.githubUrl,
+            currentApp.name
+          );
+
+          if (result.success) {
+            showSuccess(`✅ Deployment pipeline ready!`);
+            showInfo(`📦 Repository: ${currentApp.githubUrl}`);
+            showInfo(`🚀 Deployment URL: ${result.deploymentUrl}`);
+            showInfo(`🔄 Future pushes to main branch will automatically deploy`);
+          } else {
+            showError(`Pipeline setup failed: ${result.error}`);
+          }
+        } else {
+          showError('No GitHub repository found. Please push your app to GitHub first.');
+        }
+      } else {
+        showSuccess(`✅ Both GitHub and Vercel are connected and ready for deployment!`);
+      }
+    } catch (error) {
+      console.error('Setup deployment pipeline failed:', error);
+      showError(`Pipeline setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * Get operations for a specific stream
    */
   getStreamOperations(streamId: string): PrestigeStreamingOperation[] {
@@ -430,7 +619,7 @@ export class StreamingAgentProcessor {
  */
 export interface PrestigeStreamingOperation {
   id: string;
-  type: 'think' | 'write' | 'rename' | 'delete' | 'add-dependency' | 'command' | 'add-integration' | 'codebase-context' | 'chat-summary';
+  type: 'think' | 'write' | 'rename' | 'delete' | 'add-dependency' | 'command' | 'add-integration' | 'codebase-context' | 'chat-summary' | 'deploy-vercel' | 'create-vercel-project' | 'setup-deployment';
   state: PrestigeBlockState;
   startIndex?: number;
 
@@ -456,6 +645,12 @@ export interface PrestigeStreamingOperation {
 
   // Codebase context operation fields
   contextRequest?: ContextRequest;
+
+  // Vercel operation fields
+  appId?: number;
+  repoUrl?: string;
+  projectName?: string;
+  autoConnect?: boolean;
 }
 
 /**

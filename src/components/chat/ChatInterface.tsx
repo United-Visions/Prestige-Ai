@@ -18,6 +18,7 @@ import { ChatPreviewPanel } from './ChatPreviewPanel';
 import { PreviewSlidePanel } from '@/components/preview/PreviewSlidePanel';
 import { PreviewTab } from '@/components/preview/PreviewTab';
 import { TodoSideView } from '@/components/todo/TodoSideView';
+import { ErrorResolutionBlock } from '@/components/error/ErrorResolutionBlock';
 import { constructSystemPromptAsync, readAiRules } from '@/prompts/system_prompt';
 import { aiModelServiceV2 as aiModelService, StreamChunk } from '@/services/aiModelService';
 import { AdvancedAppManagementService } from '@/services/advancedAppManagementService';
@@ -28,6 +29,9 @@ import { supportsThinking } from '@/utils/thinking';
 import type { Message } from '@/types';
 import { useEnhancedStreaming } from '@/services/enhancedStreamingService';
 import { autoModeService } from '@/services/autoModeService';
+import { enhancedErrorDetectionService } from '@/services/enhancedErrorDetectionService';
+import { enhancedPackageInstallationService } from '@/services/enhancedPackageInstallationService';
+import { showSuccess, showError } from '@/utils/toast';
 
 export function ChatInterface() {
   const {
@@ -63,6 +67,11 @@ export function ChatInterface() {
   // Preview panel state
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
+  // Error resolution state
+  const [currentErrorReport, setCurrentErrorReport] = useState<any>(null);
+  const [showErrorResolution, setShowErrorResolution] = useState(false);
+  const [errorResolutionAppId, setErrorResolutionAppId] = useState<number | null>(null);
+
   // Enhanced streaming service
   const { startEnhancedStream, cancelStream } = useEnhancedStreaming();
 
@@ -73,17 +82,25 @@ export function ChatInterface() {
     loadApps();
   }, [loadApps]);
 
-  // Load resume briefs when app changes
+    // Load resume briefs when app changes
   useEffect(() => {
     if (currentApp && currentConversation && !dismissedResumeBanner) {
       autoModeService.getUnfinishedPlansForApp(currentApp.id).then(briefs => {
         const other = briefs.filter(b => b.conversationId !== currentConversation.id);
         setResumeBriefs(other);
       });
-    } else {
-      setResumeBriefs([]);
     }
   }, [currentApp, currentConversation, dismissedResumeBanner]);
+
+  // Set up error detection handler
+  useEffect(() => {
+    enhancedErrorDetectionService.setErrorResolutionHandler(async (errorReport, appId) => {
+      console.log('🚨 Auto Mode paused due to errors in app', appId, errorReport);
+      setCurrentErrorReport(errorReport);
+      setErrorResolutionAppId(appId);
+      setShowErrorResolution(true);
+    });
+  }, []);
 
   // Listen for API key dialog events from CodeViewerPanel
   useEffect(() => {
@@ -455,6 +472,78 @@ export function ChatInterface() {
     }
   };
 
+  // Error resolution handlers
+  const handleInstallPackages = async (packages: string[]) => {
+    if (!errorResolutionAppId) return;
+
+    try {
+      await enhancedPackageInstallationService.installPackagesForApp({
+        appId: errorResolutionAppId,
+        packages,
+        onProgress: (message) => {
+          console.log('📦 Package installation:', message);
+        },
+        onComplete: () => {
+          showSuccess('Packages installed successfully!');
+          setShowErrorResolution(false);
+          setCurrentErrorReport(null);
+          setErrorResolutionAppId(null);
+        },
+        onError: (error) => {
+          showError(`Failed to install packages: ${error.message}`);
+        }
+      });
+    } catch (error) {
+      console.error('Package installation error:', error);
+      showError('Failed to install packages');
+    }
+  };
+
+  const handleRestartApp = async () => {
+    if (!errorResolutionAppId || !currentApp) return;
+
+    try {
+      const appService = AdvancedAppManagementService.getInstance();
+      await appService.stopApp(errorResolutionAppId);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await appService.runApp(errorResolutionAppId, () => {}, () => {});
+      
+      showSuccess('App restarted successfully!');
+      setShowErrorResolution(false);
+      setCurrentErrorReport(null);
+      setErrorResolutionAppId(null);
+    } catch (error) {
+      console.error('App restart error:', error);
+      showError('Failed to restart app');
+    }
+  };
+
+  const handleAutoFixErrors = async () => {
+    if (!currentErrorReport || !errorResolutionAppId) return;
+
+    const errorPrompt = `Fix these errors detected in the application:
+
+Build Errors:
+${currentErrorReport.buildErrors.map((error: any, index: number) => 
+  `${index + 1}. ${error.file}:${error.line}:${error.column} - ${error.message}`
+).join('\n')}
+
+Runtime Errors:
+${currentErrorReport.runtimeErrors.map((error: any, index: number) => 
+  `${index + 1}. ${error.payload.message}`
+).join('\n')}
+
+Please fix all errors in a concise way. Make only the necessary changes to resolve these specific errors.`;
+
+    setInput(errorPrompt);
+    setShowErrorResolution(false);
+    setCurrentErrorReport(null);
+    setErrorResolutionAppId(null);
+    
+    // Send the error fix prompt
+    handleSendMessage(errorPrompt);
+  };
+
   return (
     <div className="flex h-screen bg-background">
       <AppSidebar />
@@ -565,6 +654,24 @@ export function ChatInterface() {
                         <p className="text-destructive text-sm font-medium">{error}</p>
                       </CardContent>
                     </Card>
+                  </div>
+                )}
+
+                {/* Error Resolution Block */}
+                {showErrorResolution && currentErrorReport && (
+                  <div className="px-6">
+                    <ErrorResolutionBlock
+                      appId={errorResolutionAppId || 0}
+                      errorReport={currentErrorReport}
+                      onInstallPackages={handleInstallPackages}
+                      onRestartApp={handleRestartApp}
+                      onAutoFix={handleAutoFixErrors}
+                      onDismiss={() => {
+                        setShowErrorResolution(false);
+                        setCurrentErrorReport(null);
+                        setErrorResolutionAppId(null);
+                      }}
+                    />
                   </div>
                 )}
               </>

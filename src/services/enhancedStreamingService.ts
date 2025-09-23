@@ -3,6 +3,8 @@ import { useStreamingAgentProcessor } from './streamingAgentProcessor';
 import { prestigeAutoFixService } from './prestigeAutoFixService';
 import { processAgentResponse } from './agentResponseProcessor';
 import { autoModeService } from './autoModeService';
+import { enhancedErrorDetectionService } from './enhancedErrorDetectionService';
+import { enhancedPackageInstallationService } from './enhancedPackageInstallationService';
 import useAppStore from '@/stores/appStore';
 import { resolveAppPaths } from '@/utils/appPathResolver';
 import { showSuccess, showError, showInfo } from '@/utils/toast';
@@ -44,6 +46,9 @@ export class EnhancedStreamingService {
       // Auto-continue options
       continuation?: { conversationId: number; planId: string };
       onContinuationDone?: () => void;
+      // Error monitoring options
+      enableErrorMonitoring?: boolean;
+      onErrorDetected?: (appId: number, errorReport: any) => void;
     } = {}
   ): Promise<void> {
     const {
@@ -173,14 +178,62 @@ export class EnhancedStreamingService {
       aiRequestFunction?: (prompt: string) => Promise<string>;
       selectedModel?: any;
       systemPrompt?: string;
+      onErrorDetected?: (appId: number, errorReport: any) => void;
     }
   ) {
+    const { currentApp } = useAppStore.getState();
+    if (!currentApp) {
+      options.onError?.(new Error("No application selected"));
+      return;
+    }
+
+    // Set up error resolution handler
+    enhancedErrorDetectionService.setErrorResolutionHandler(async (errorReport, appId) => {
+      console.log(`🚨 Auto Mode paused due to errors in app ${appId}`, errorReport);
+      options.onErrorDetected?.(appId, errorReport);
+      
+      // Generate error fix prompt
+      const errorPrompt = this.generateErrorFixPrompt(errorReport);
+      
+      // Try to fix errors automatically
+      try {
+        await this.startEnhancedStream(`${parentStreamId}__error_fix_${Date.now()}`, errorPrompt, {
+          onChunk: options.onChunk,
+          onError: options.onError,
+          onComplete: (response) => {
+            // After error fix, resume the app
+            enhancedErrorDetectionService.resumeAppAfterErrorResolution(appId);
+            options.onComplete?.(response);
+          },
+          aiRequestFunction: options.aiRequestFunction,
+          selectedModel: options.selectedModel,
+          systemPrompt: options.systemPrompt,
+          enableErrorMonitoring: true
+        });
+      } catch (error) {
+        console.error('Error during automatic error fix:', error);
+        options.onError?.(error as Error);
+      }
+    });
+
     // Repeat until no pending todos or aborted
     let next = await autoModeService.getNextPendingTodo(conversationId, planId);
     while (next) {
+      // Check if app is paused due to errors
+      if (enhancedErrorDetectionService.isAppPausedForErrors(currentApp.id)) {
+        console.log('🛑 Auto Mode paused due to errors, waiting for resolution...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+
       const controller = new AbortController();
       const streamId = `${parentStreamId}__cont_${Date.now()}`;
       this.activeStreams.set(streamId, controller);
+
+      // Start error monitoring for this app
+      if (next.todo.title.toLowerCase().includes('run') || next.todo.title.toLowerCase().includes('start')) {
+        await enhancedErrorDetectionService.startAppMonitoring(currentApp.id);
+      }
 
       const prompt = `Continue development by implementing the next todo.
 Plan: ${planId}
@@ -198,6 +251,8 @@ Use prestige tags to modify files and run commands.`;
           aiRequestFunction: options.aiRequestFunction,
           selectedModel: options.selectedModel,
           systemPrompt: options.systemPrompt,
+          enableErrorMonitoring: true,
+          onErrorDetected: options.onErrorDetected
         });
 
         // After completion, mark todo as completed
@@ -456,6 +511,58 @@ Error: ${error instanceof Error ? error.message : String(error)}
    */
   isAutoFixRunning(streamId: string): boolean {
     return this.autoFixStreams.get(streamId) || false;
+  }
+
+  /**
+   * Generate error fix prompt with prestige tags
+   */
+  private generateErrorFixPrompt(errorReport: any): string {
+    const missingPackages: string[] = [];
+    
+    // Detect missing packages from build errors
+    errorReport.buildErrors.forEach((error: any) => {
+      const importMatch = error.message.match(/Failed to resolve import "([^"]+)"/);
+      if (importMatch) {
+        const packageName = importMatch[1];
+        if (packageName.startsWith('@')) {
+          const scopedPackage = packageName.split('/').slice(0, 2).join('/');
+          if (!missingPackages.includes(scopedPackage)) {
+            missingPackages.push(scopedPackage);
+          }
+        }
+      }
+    });
+
+    let prompt = `Fix these errors detected in the application:\n\n`;
+    
+    if (errorReport.buildErrors.length > 0) {
+      prompt += `Build Errors:\n`;
+      errorReport.buildErrors.forEach((error: any, index: number) => {
+        prompt += `${index + 1}. ${error.file}:${error.line}:${error.column} - ${error.message}\n`;
+      });
+      prompt += '\n';
+    }
+
+    if (errorReport.runtimeErrors.length > 0) {
+      prompt += `Runtime Errors:\n`;
+      errorReport.runtimeErrors.forEach((error: any, index: number) => {
+        prompt += `${index + 1}. ${error.payload.message}\n`;
+      });
+      prompt += '\n';
+    }
+
+    if (missingPackages.length > 0) {
+      prompt += `Missing packages detected: ${missingPackages.join(', ')}\n`;
+      prompt += `Use: <prestige-add-dependency packages="${missingPackages.join(' ')}"></prestige-add-dependency>\n\n`;
+    }
+
+    prompt += `Please provide the necessary fixes using prestige tags:\n`;
+    prompt += `- Use <prestige-write> to fix file content\n`;
+    prompt += `- Use <prestige-add-dependency> for missing packages\n`;
+    prompt += `- Use <prestige-command type="restart"> to restart the app\n\n`;
+    prompt += `Make only the necessary changes to resolve these specific errors.`;
+
+    return prompt;
   }
 }
 

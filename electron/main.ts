@@ -395,7 +395,7 @@ ipcMain.handle('fs:read-directory-tree', async (_, dirPath: string): Promise<any
       const tree: any[] = [];
 
       for (const item of items) {
-        if (item.startsWith('.') || item === 'node_modules' || item === 'conversations') {
+        if ((item.startsWith('.') && item !== '.env') || item === 'node_modules' || item === 'conversations') {
           continue;
         }
 
@@ -859,6 +859,212 @@ ipcMain.handle('github:api-request', async (_, { endpoint, options }: {
   }
 });
 
+// Vercel API handlers
+ipcMain.handle('vercel:api-request', async (_, { endpoint, options, token }: { 
+  endpoint: string; 
+  options?: RequestInit;
+  token: string;
+}) => {
+  try {
+    const response = await fetch(`https://api.vercel.com${endpoint}`, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+
+    const data = await response.json();
+    return { ok: response.ok, status: response.status, statusText: response.statusText, data };
+  } catch (error) {
+    console.error('Vercel API request error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('vercel:create-project', async (_, { projectData, token }: {
+  projectData: {
+    name: string;
+    teamId?: string;
+    framework?: string;
+    gitRepository?: {
+      type: string;
+      repo: string;
+    };
+    buildCommand?: string;
+    devCommand?: string;
+    outputDirectory?: string;
+    rootDirectory?: string;
+    environmentVariables?: Array<{
+      key: string;
+      value: string;
+      target: string[];
+    }>;
+  };
+  token: string;
+}) => {
+  try {
+    let url = 'https://api.vercel.com/v10/projects';
+    if (projectData.teamId) {
+      url += `?teamId=${projectData.teamId}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(projectData),
+    });
+
+    const data = await response.json();
+    return { ok: response.ok, status: response.status, statusText: response.statusText, data };
+  } catch (error) {
+    console.error('Vercel create project error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('vercel:deploy-from-git', async (_, { deploymentData, token }: {
+  deploymentData: {
+    projectId: string;
+    teamId?: string;
+    gitSource: {
+      type: 'github' | 'gitlab' | 'bitbucket';
+      repo: string;
+      ref?: string;
+    };
+    target?: 'production' | 'staging';
+  };
+  token: string;
+}) => {
+  try {
+    let url = 'https://api.vercel.com/v13/deployments';
+    if (deploymentData.teamId) {
+      url += `?teamId=${deploymentData.teamId}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: deploymentData.projectId,
+        project: deploymentData.projectId,
+        gitSource: deploymentData.gitSource,
+        target: deploymentData.target || 'staging',
+      }),
+    });
+
+    const data = await response.json();
+    return { ok: response.ok, status: response.status, statusText: response.statusText, data };
+  } catch (error) {
+    console.error('Vercel deploy from git error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('vercel:set-env-vars', async (_, { projectId, teamId, environmentVariables, token }: {
+  projectId: string;
+  teamId?: string;
+  environmentVariables: Array<{
+    key: string;
+    value: string;
+    target: ('production' | 'preview' | 'development')[];
+    type?: 'plain' | 'secret';
+  }>;
+  token: string;
+}) => {
+  try {
+    let url = `https://api.vercel.com/v10/projects/${projectId}/env`;
+    if (teamId) {
+      url += `?teamId=${teamId}`;
+    }
+
+    const results = [];
+    for (const envVar of environmentVariables) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          key: envVar.key,
+          value: envVar.value,
+          target: envVar.target,
+          type: envVar.type || 'plain',
+        }),
+      });
+
+      const data = await response.json();
+      results.push({ ok: response.ok, status: response.status, data });
+    }
+
+    return { success: true, results };
+  } catch (error) {
+    console.error('Vercel set environment variables error:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('vercel:connect-github-repo', async (_, { appId, repoUrl, projectName, token }: {
+  appId: number;
+  repoUrl: string;
+  projectName?: string;
+  token: string;
+}) => {
+  try {
+    // Extract owner/repo from GitHub URL
+    const match = repoUrl.match(/github\.com[/:]([\w-]+)\/([\w-]+)/);
+    if (!match) {
+      throw new Error('Invalid GitHub repository URL');
+    }
+    
+    const [, owner, repo] = match;
+    const repoFullName = `${owner}/${repo}`;
+    
+    // Create Vercel project connected to GitHub repo
+    const createResponse = await fetch('https://api.vercel.com/v10/projects', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: projectName || repo,
+        gitRepository: {
+          type: 'github',
+          repo: repoFullName,
+        },
+      }),
+    });
+
+    const projectData = await createResponse.json();
+    
+    if (!createResponse.ok) {
+      throw new Error(`Failed to create Vercel project: ${projectData.error?.message || 'Unknown error'}`);
+    }
+
+    return {
+      success: true,
+      project: projectData,
+      repoUrl,
+      deploymentUrl: `https://${projectData.name}.vercel.app`,
+    };
+  } catch (error) {
+    console.error('Vercel connect GitHub repo error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
 // Git operations handlers
 ipcMain.handle('git:init', async (_, repoPath: string) => {
   try {
@@ -1274,6 +1480,42 @@ ipcMain.handle('git:pull', async (_, repoPath: string) => {
   } catch (error) {
     console.error('Git pull error:', error);
     throw new Error(`Failed to pull: ${error.message}`);
+  }
+});
+
+// Package installation handler
+ipcMain.handle('package:install', async (_, packages: string[], appPath: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const packageStr = packages.join(' ');
+    
+    console.log(`📦 Installing packages in ${appPath}:`, packageStr);
+    
+    // Try pnpm first, fallback to npm (following dyad pattern)
+    const command = `(pnpm add ${packageStr}) || (npm install --legacy-peer-deps ${packageStr})`;
+    
+    const result = execSync(command, {
+      cwd: appPath,
+      encoding: 'utf8',
+      timeout: 120000, // 2 minute timeout
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH}` }
+    });
+
+    console.log(`✅ Successfully installed packages:`, packages);
+    
+    return { 
+      success: true, 
+      output: result,
+      installedPackages: packages 
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Package installation failed:`, errorMessage);
+    return { 
+      success: false, 
+      error: errorMessage,
+      installedPackages: []
+    };
   }
 });
 

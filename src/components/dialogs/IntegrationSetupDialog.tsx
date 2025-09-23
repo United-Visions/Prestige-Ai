@@ -7,6 +7,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Github, Database, Globe, ExternalLink, Copy, CheckCircle, Loader } from 'lucide-react';
 import { GitHubService } from '@/services/githubService';
@@ -63,9 +64,10 @@ export function IntegrationSetupDialog({
 }: IntegrationSetupDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [authStep, setAuthStep] = useState<'start' | 'waiting' | 'success'>('start');
+  const [authStep, setAuthStep] = useState<'start' | 'waiting' | 'success' | 'manual-token'>('start');
   const [authData, setAuthData] = useState<any>(null);
   const [mongoConnectionString, setMongoConnectionString] = useState('');
+  const [vercelToken, setVercelToken] = useState('');
 
   const config = providerConfig[provider];
   const Icon = config.icon;
@@ -76,9 +78,14 @@ export function IntegrationSetupDialog({
     setAuthStep('start');
     setAuthData(null);
     setMongoConnectionString('');
+    setVercelToken('');
   };
 
   const handleClose = () => {
+    // Clean up OAuth callback listener for Vercel
+    if (provider === 'vercel') {
+      window.electronAPI?.oauth?.removeCallbackListener?.();
+    }
     resetState();
     onClose();
   };
@@ -179,7 +186,20 @@ export function IntegrationSetupDialog({
         if (!VercelService) {
           throw new Error('Vercel service is not available');
         }
-        setError('Vercel integration setup is coming soon!');
+        
+        // Start Vercel OAuth flow with proper configuration
+        const state = Math.random().toString(36).substring(2, 15);
+        
+        // For now, we'll use a manual token approach since OAuth app setup requires Vercel configuration
+        // In production, you would need to register an OAuth app with Vercel and get proper client_id
+        setError('Please use a manual token approach for Vercel integration. You can generate a token at https://vercel.com/account/tokens');
+        setAuthStep('manual-token');
+        
+        setAuthData({
+          state,
+          provider: 'vercel',
+          tokenUrl: 'https://vercel.com/account/tokens'
+        });
       } else if (provider === 'mongodb') {
         // Directly attempt auto-provision of demo DB
         await handleMongoConnect();
@@ -191,6 +211,36 @@ export function IntegrationSetupDialog({
       if (provider !== 'github') {
         setIsLoading(false);
       }
+    }
+  };
+
+  const handleVercelTokenSubmit = async () => {
+    if (!vercelToken.trim()) {
+      setError('Please enter a valid Vercel token');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const vercelService = VercelService.getInstance();
+      vercelService.setAccessToken(vercelToken.trim());
+      
+      // Test the token by getting user info
+      const user = await vercelService.getUser();
+      if (user) {
+        setAuthStep('success');
+        onSuccess?.();
+        setTimeout(() => handleClose(), 2000);
+      } else {
+        throw new Error('Invalid token or failed to authenticate');
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Token validation failed');
+      VercelService.getInstance().logout(); // Clear invalid token
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -224,7 +274,7 @@ export function IntegrationSetupDialog({
                 {provider === 'github' && "We'll use GitHub's device flow to securely connect your account."}
                 {provider === 'supabase' && "You'll be redirected to Supabase to authorize the connection."}
                 {provider === 'mongodb' && "We'll automatically create a local demo MongoDB database — no connection string needed."}
-                {provider === 'vercel' && "Connect your Vercel account for deployment automation."}
+                {provider === 'vercel' && "You'll be redirected to Vercel to authorize deployment and project access."}
               </div>
               
               <Button
@@ -311,6 +361,101 @@ export function IntegrationSetupDialog({
                 >
                   I've completed authorization
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {authStep === 'waiting' && provider === 'vercel' && (
+            <div className="space-y-4">
+              <Alert className="border-black bg-gray-50">
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p className="font-medium">Complete authorization on Vercel:</p>
+                    <p className="text-sm">
+                      You should have been redirected to Vercel. After authorizing the app, 
+                      you'll be automatically redirected back and the connection will complete.
+                    </p>
+                  </div>
+                </AlertDescription>
+              </Alert>
+              
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                <Loader className="w-4 h-4 animate-spin" />
+                Waiting for authorization...
+              </div>
+              
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setAuthStep('start')}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(authData?.authUrl, '_blank')}
+                  className="flex-1"
+                >
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  Reopen Vercel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {authStep === 'manual-token' && provider === 'vercel' && (
+            <div className="space-y-4">
+              <Alert className="border-blue-200 bg-blue-50">
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p className="font-medium">Manual Token Setup:</p>
+                    <p className="text-sm">
+                      1. Go to{' '}
+                      <Button
+                        variant="link"
+                        className="h-auto p-0 text-blue-600"
+                        onClick={() => window.open(authData?.tokenUrl, '_blank')}
+                      >
+                        Vercel Account Tokens <ExternalLink className="w-3 h-3 ml-1" />
+                      </Button>
+                    </p>
+                    <p className="text-sm">2. Create a new token with these scopes: read:user, read:project, write:project</p>
+                    <p className="text-sm">3. Copy and paste the token below:</p>
+                  </div>
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Vercel Access Token</label>
+                  <Input
+                    type="password"
+                    value={vercelToken}
+                    onChange={(e) => setVercelToken(e.target.value)}
+                    placeholder="vercel_xxxxxxxxxxxxxxxxxxxxx"
+                    className="mt-1"
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAuthStep('start')}
+                    className="flex-1"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handleVercelTokenSubmit}
+                    disabled={isLoading || !vercelToken.trim()}
+                    className="flex-1"
+                  >
+                    {isLoading && <Loader className="w-4 h-4 mr-2 animate-spin" />}
+                    Connect
+                  </Button>
+                </div>
               </div>
             </div>
           )}

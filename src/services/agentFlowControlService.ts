@@ -317,28 +317,57 @@ export class AgentFlowControlService {
       });
     }
 
-    // Deployment check
+    // Deployment check - Enhanced for GitHub + Vercel workflow
     if (request.detectedIntentions.requiresDeployment) {
-      const isVercelConnected = vercelService.isAuthenticated();
-      const isGitHubConnected = githubService.isAuthenticated();
-      const hasDeploymentOption = isVercelConnected || isGitHubConnected;
+      const isVercelConnected = await vercelService.isAuthenticated();
+      const isGitHubConnected = await githubService.isAuthenticated();
       
-      checks.push({
-        type: 'deployment',
-        required: true,
-        configured: hasDeploymentOption,
-        service: isVercelConnected ? 'vercel' : isGitHubConnected ? 'github' : undefined,
-        blockReason: hasDeploymentOption ? undefined : 'missing_deployment_target',
-        message: hasDeploymentOption 
-          ? 'Deployment target is configured' 
-          : 'Deployment configuration required',
-        actionRequired: hasDeploymentOption ? undefined : 'Please connect Vercel or GitHub for deployment',
-      });
+      // Ideal setup: Both GitHub and Vercel connected
+      const hasIdealDeploymentSetup = isVercelConnected && isGitHubConnected;
+      
+      if (hasIdealDeploymentSetup) {
+        checks.push({
+          type: 'deployment',
+          required: true,
+          configured: true,
+          service: 'vercel',
+          message: 'Full deployment pipeline available (GitHub → Vercel)',
+          actionRequired: undefined,
+        });
+      } else if (isVercelConnected && !isGitHubConnected) {
+        checks.push({
+          type: 'deployment',
+          required: true,
+          configured: true,
+          service: 'vercel',
+          message: 'Vercel connected. Add GitHub for automatic deployments',
+          actionRequired: 'Connect GitHub for complete CI/CD pipeline',
+        });
+      } else if (isGitHubConnected && !isVercelConnected) {
+        checks.push({
+          type: 'deployment',
+          required: true,
+          configured: false,
+          service: 'github',
+          blockReason: 'missing_deployment_target',
+          message: 'GitHub connected. Add Vercel for instant deployment',
+          actionRequired: 'Connect Vercel to enable deployment',
+        });
+      } else {
+        checks.push({
+          type: 'deployment',
+          required: true,
+          configured: false,
+          blockReason: 'missing_deployment_target',
+          message: 'Deployment requires GitHub (version control) + Vercel (hosting)',
+          actionRequired: 'Connect GitHub and Vercel for full deployment pipeline',
+        });
+      }
     }
 
     // Version control check
     if (request.detectedIntentions.requiresVersionControl) {
-      const isGitHubConnected = githubService.isAuthenticated();
+      const isGitHubConnected = await githubService.isAuthenticated();
       checks.push({
         type: 'version_control',
         required: true,

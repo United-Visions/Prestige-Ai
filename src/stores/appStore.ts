@@ -53,7 +53,7 @@ interface AppState {
   connectVercel: (token: string) => Promise<void>;
   connectSupabase: (token: string) => Promise<void>;
   disconnectGitHub: () => void;
-  disconnectVercel: () => void;
+  disconnectVercel: () => Promise<void>;
   disconnectSupabase: () => void;
 }
 
@@ -318,6 +318,8 @@ const useAppStore = create<AppState>()(
           vercelStatus: { ...state.vercelStatus, loading: true, error: undefined }
         }));
         try {
+          // Force reload token from storage
+          await vercelService.reloadStoredToken();
           const user = await vercelService.getCurrentUser();
           set((state) => ({ 
             vercelStatus: { connected: !!user, loading: false, user }
@@ -430,10 +432,15 @@ const useAppStore = create<AppState>()(
         set({ githubStatus: { connected: false, loading: false } });
       },
 
-      disconnectVercel: () => {
-        const vercelService = VercelService.getInstance();
-        vercelService.clearAuth();
-        set({ vercelStatus: { connected: false, loading: false } });
+      disconnectVercel: async () => {
+        try {
+          const vercelService = VercelService.getInstance();
+          await vercelService.logout();
+          set({ vercelStatus: { connected: false, loading: false } });
+        } catch (error) {
+          console.error('Failed to disconnect Vercel:', error);
+          set({ vercelStatus: { connected: false, loading: false } });
+        }
       },
 
       disconnectSupabase: () => {

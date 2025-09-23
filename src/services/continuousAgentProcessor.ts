@@ -116,7 +116,7 @@ export async function processContinuousAgentResponse(response: string) {
       const mongo = MongoDBService.getInstance();
       const autoUri = await mongo.ensureLocalEphemeral();
       if (!autoUri) {
-        const promptMessage = `<prestige-prompt-db-connect>This operation requires a database connection. Please connect MongoDB or Supabase in the Developer Tools & Integrations menu.</prestige-prompt-db-connect>`;
+        const promptMessage = `<prestige-prompt-db-connect>This operation requires a database connection. MongoDB is recommended as the default database. You can also use Supabase if preferred. Please connect in the Developer Tools & Integrations menu.</prestige-prompt-db-connect>`;
         return { chatContent: promptMessage, chatSummary: 'Database connection required' };
       }
     }

@@ -113,17 +113,27 @@ class OAuthCallbackService {
         throw new Error('No authorization code received');
       }
 
+      // Check for errors first
+      if (params.error) {
+        throw new Error(params.error);
+      }
+
+      // Validate required code parameter
+      if (!params.code) {
+        throw new Error('Authorization code is required');
+      }
+
       let result: OAuthCallbackResult;
 
       switch (provider) {
         case 'github':
-          result = await this.handleGitHubCallback(params);
+          result = await this.handleGitHubCallback({ code: params.code, state: params.state });
           break;
         case 'supabase':
-          result = await this.handleSupabaseCallback(params);
+          result = await this.handleSupabaseCallback({ code: params.code, state: params.state });
           break;
         case 'vercel':
-          result = await this.handleVercelCallback(params);
+          result = await this.handleVercelCallback({ code: params.code, state: params.state });
           break;
         default:
           throw new Error(`Unsupported provider: ${provider}`);
@@ -328,12 +338,53 @@ class OAuthCallbackService {
    */
   private async handleVercelCallback(params: { code: string; state?: string }): Promise<OAuthCallbackResult> {
     try {
-      // Vercel OAuth implementation would go here
-      // For now, return a placeholder
+      // Exchange code for access token
+      const tokenResponse = await fetch('https://api.vercel.com/v2/oauth/access_token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: process.env.VERCEL_CLIENT_ID || 'your_vercel_client_id',
+          client_secret: process.env.VERCEL_CLIENT_SECRET || 'your_vercel_client_secret',
+          code: params.code,
+          redirect_uri: process.env.VERCEL_REDIRECT_URI || 'http://localhost:8080/auth/vercel/callback',
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        throw new Error('Failed to exchange code for token');
+      }
+
+      const tokenData = await tokenResponse.json();
+      
+      if (tokenData.error) {
+        throw new Error(tokenData.error_description || tokenData.error);
+      }
+
+      // Store the access token securely
+      const tokenStorage = (await import('./tokenStorageService')).tokenStorageService;
+      await tokenStorage.storeTokens('vercel', {
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        expiresAt: tokenData.expires_in ? Date.now() + (tokenData.expires_in * 1000) : undefined
+      });
+
+      // Set token in Vercel service
+      const vercelService = (await import('./vercelService')).vercelService;
+      vercelService.setAccessToken(tokenData.access_token);
+
+      // Get user info to confirm authentication
+      const user = await vercelService.getUser();
+
       return {
-        success: false,
+        success: true,
         provider: 'vercel',
-        error: 'Vercel integration not yet implemented'
+        user: user ? {
+          id: user.id,
+          email: user.email,
+          name: user.name
+        } : undefined
       };
 
     } catch (error) {

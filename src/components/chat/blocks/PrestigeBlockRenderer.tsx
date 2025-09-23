@@ -6,6 +6,7 @@ import { PrestigeDeleteBlock } from "./PrestigeDeleteBlock";
 import { PrestigeAddDependencyBlock } from "./PrestigeAddDependencyBlock";
 import { PrestigeCommandBlock } from "./PrestigeCommandBlock";
 import { PrestigeAddIntegrationBlock } from "./PrestigeAddIntegrationBlock";
+import { PrestigeSetupEnvBlock } from "./PrestigeSetupEnvBlock";
 import { PrestigeCodebaseContextBlock } from "./PrestigeCodebaseContextBlock";
 import { PrestigePromptDbConnectBlock } from "./PrestigePromptDbConnectBlock";
 import { PrestigeContentPiece, PrestigeTagInfo, PrestigeBlockState } from "./PrestigeBlockTypes";
@@ -121,6 +122,7 @@ function preprocessUnclosedTags(content: string): {
     "prestige-add-dependency",
     "prestige-command",
     "prestige-add-integration",
+    "prestige-setup-env",
     "prestige-codebase-context",
     "prestige-prompt-db-connect",
     "prestige-chat-summary",
@@ -184,6 +186,7 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
     "prestige-add-dependency",
     "prestige-command",
     "prestige-add-integration",
+    "prestige-setup-env",
     "prestige-codebase-context",
     "prestige-prompt-db-connect",
     "prestige-chat-summary",
@@ -285,6 +288,16 @@ function parsePrestigeBlocks(content: string, isStreaming: boolean): PrestigeCon
           type: "prestige-add-integration",
           provider: attributes.provider || "",
           content: tagContent,
+          inProgress: isInProgress || false
+        });
+        break;
+
+      case "prestige-setup-env":
+        contentPieces.push({
+          type: "prestige-setup-env",
+          service: attributes.service || "",
+          apiKey: attributes.apiKey || "",
+          description: attributes.description,
           inProgress: isInProgress || false
         });
         break;
@@ -457,6 +470,22 @@ function renderPrestigeBlock(
         >
           {piece.content}
         </PrestigeAddIntegrationBlock>
+      );
+
+    case "prestige-setup-env":
+      return (
+        <PrestigeSetupEnvBlock
+          node={{
+            properties: {
+              service: piece.service,
+              apiKey: piece.apiKey,
+              description: piece.description,
+              state: getBlockState({ isStreaming, inProgress: piece.inProgress })
+            }
+          }}
+        >
+          {piece.content}
+        </PrestigeSetupEnvBlock>
       );
 
     case "prestige-codebase-context":

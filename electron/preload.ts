@@ -89,6 +89,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('path:relative', from, to),
   },
 
+  // Package installation
+  package: {
+    install: (packages: string[], appPath: string): Promise<{ success: boolean; output?: string; error?: string; installedPackages: string[] }> =>
+      ipcRenderer.invoke('package:install', packages, appPath),
+  },
+
   // Database operations
   db: {
     getApps: (): Promise<any[]> => ipcRenderer.invoke('db:get-apps'),
@@ -202,6 +208,51 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('github:device-flow-poll', params),
     apiRequest: (endpoint: string, options?: RequestInit) => 
       ipcRenderer.invoke('github:api-request', { endpoint, options }),
+  },
+
+  // Vercel API operations (bypasses CORS)
+  vercel: {
+    apiRequest: (endpoint: string, options: RequestInit, token: string) => 
+      ipcRenderer.invoke('vercel:api-request', { endpoint, options, token }),
+    createProject: (projectData: {
+      name: string;
+      teamId?: string;
+      framework?: string;
+      gitRepository?: {
+        type: string;
+        repo: string;
+      };
+      buildCommand?: string;
+      devCommand?: string;
+      outputDirectory?: string;
+      rootDirectory?: string;
+      environmentVariables?: Array<{
+        key: string;
+        value: string;
+        target: string[];
+      }>;
+    }, token: string) => 
+      ipcRenderer.invoke('vercel:create-project', { projectData, token }),
+    deployFromGit: (deploymentData: {
+      projectId: string;
+      teamId?: string;
+      gitSource: {
+        type: 'github' | 'gitlab' | 'bitbucket';
+        repo: string;
+        ref?: string;
+      };
+      target?: 'production' | 'staging';
+    }, token: string) => 
+      ipcRenderer.invoke('vercel:deploy-from-git', { deploymentData, token }),
+    setEnvironmentVariables: (projectId: string, teamId: string | undefined, environmentVariables: Array<{
+      key: string;
+      value: string;
+      target: ('production' | 'preview' | 'development')[];
+      type?: 'plain' | 'secret';
+    }>, token: string) => 
+      ipcRenderer.invoke('vercel:set-env-vars', { projectId, teamId, environmentVariables, token }),
+    connectGitHubRepo: (appId: number, repoUrl: string, projectName: string | undefined, token: string) => 
+      ipcRenderer.invoke('vercel:connect-github-repo', { appId, repoUrl, projectName, token }),
   },
 
   // Git operations
@@ -372,8 +423,11 @@ declare global {
         clone: (url: string, targetPath: string, name?: string) => Promise<any>
       }
       mongo: {
-        startEphemeral: () => Promise<{ ok: boolean; uri?: string; error?: string }>
+        startEphemeral: () => Promise<{ ok: boolean; uri?: string; error?: string }>,
         stopEphemeral: () => Promise<{ ok: boolean; error?: string }>
+      },
+      package: {
+        install: (packages: string[], appPath: string) => Promise<{ success: boolean; output?: string; error?: string; installedPackages: string[] }>
       }
     }
   }

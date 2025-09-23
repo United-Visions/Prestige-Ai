@@ -60,16 +60,62 @@ const VERCEL_API_BASE = "https://api.vercel.com";
 export class VercelService {
   private static instance: VercelService;
   private accessToken: string | null = null;
+  private tokenStorageService: any = null;
 
   static getInstance(): VercelService {
     if (!VercelService.instance) {
       VercelService.instance = new VercelService();
+      // Auto-load token on service creation
+      VercelService.instance.loadStoredToken();
     }
     return VercelService.instance;
   }
 
+  private async loadStoredToken(): Promise<void> {
+    try {
+      if (!this.tokenStorageService) {
+        const { tokenStorageService } = await import('./tokenStorageService');
+        this.tokenStorageService = tokenStorageService;
+      }
+      
+      const tokens = await this.tokenStorageService.getTokens('vercel');
+      if (tokens?.accessToken) {
+        this.accessToken = tokens.accessToken;
+        console.log('✅ Vercel token loaded from storage');
+      }
+    } catch (error) {
+      console.warn('Failed to load stored Vercel token:', error);
+    }
+  }
+
+  /**
+   * Public method to reload token from storage
+   */
+  async reloadStoredToken(): Promise<void> {
+    await this.loadStoredToken();
+  }
+
+  private async storeToken(token: string): Promise<void> {
+    try {
+      if (!this.tokenStorageService) {
+        const { tokenStorageService } = await import('./tokenStorageService');
+        this.tokenStorageService = tokenStorageService;
+      }
+      
+      await this.tokenStorageService.storeTokens('vercel', {
+        accessToken: token,
+        expiresAt: undefined // Vercel tokens don't expire
+      });
+      console.log('✅ Vercel token stored securely');
+    } catch (error) {
+      console.error('Failed to store Vercel token:', error);
+    }
+  }
+
   setAccessToken(token: string) {
     this.accessToken = token;
+    // Store token persistently
+    this.storeToken(token);
   }
 
   getAccessToken(): string | null {
@@ -89,12 +135,8 @@ export class VercelService {
     }
 
     try {
-      const response = await fetch(`${VERCEL_API_BASE}/v2/user`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-        },
-      });
-
+      const { electronAPI } = window as any;
+      const response = await electronAPI.vercel.apiRequest('/v2/user', { method: 'GET' }, this.accessToken!);
       return response.ok;
     } catch (error) {
       console.error("Failed to validate Vercel token:", error);
@@ -111,21 +153,17 @@ export class VercelService {
     }
 
     try {
-      const response = await fetch(`${VERCEL_API_BASE}/v2/user`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-        },
-      });
-
+      const { electronAPI } = window as any;
+      const response = await electronAPI.vercel.apiRequest('/v2/user', { method: 'GET' }, this.accessToken!);
+      
       if (!response.ok) {
         throw new Error(`Failed to get user: ${response.statusText}`);
       }
 
-      const userData = await response.json();
-      return userData.user;
+      return VercelUserSchema.parse(response.data.user);
     } catch (error) {
       console.error("Failed to get Vercel user:", error);
-      return null;
+      throw error;
     }
   }
 
@@ -275,59 +313,14 @@ export class VercelService {
     }
 
     try {
-      let url = `${VERCEL_API_BASE}/v10/projects`;
-      if (options.teamId) {
-        url += `?teamId=${options.teamId}`;
-      }
-
-      const projectData: any = {
-        name: options.name,
-      };
-
-      if (options.framework) {
-        projectData.framework = options.framework;
-      }
-
-      if (options.gitRepository) {
-        projectData.gitRepository = options.gitRepository;
-      }
-
-      if (options.buildCommand) {
-        projectData.buildCommand = options.buildCommand;
-      }
-
-      if (options.devCommand) {
-        projectData.devCommand = options.devCommand;
-      }
-
-      if (options.outputDirectory) {
-        projectData.outputDirectory = options.outputDirectory;
-      }
-
-      if (options.rootDirectory) {
-        projectData.rootDirectory = options.rootDirectory;
-      }
-
-      if (options.environmentVariables) {
-        projectData.environmentVariables = options.environmentVariables;
-      }
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(projectData),
-      });
-
+      const { electronAPI } = window;
+      const response = await electronAPI.vercel.createProject(options, this.accessToken!);
+      
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`Failed to create project: ${error.error?.message || response.statusText}`);
+        throw new Error(`Failed to create project: ${response.data?.error?.message || response.statusText}`);
       }
 
-      const project = await response.json();
-      return project;
+      return response.data;
     } catch (error) {
       console.error("Failed to create Vercel project:", error);
       throw error;
@@ -397,108 +390,6 @@ export class VercelService {
   }
 
   /**
-   * Deploy from Git repository
-   */
-  async deployFromGit(options: {
-    projectId: string;
-    teamId?: string;
-    gitSource: {
-      type: 'github' | 'gitlab' | 'bitbucket';
-      repo: string;
-      ref?: string;
-    };
-    target?: 'production' | 'staging';
-  }): Promise<VercelDeployment> {
-    if (!this.isAuthenticated()) {
-      throw new Error("Not authenticated");
-    }
-
-    try {
-      let url = `${VERCEL_API_BASE}/v13/deployments`;
-      if (options.teamId) {
-        url += `?teamId=${options.teamId}`;
-      }
-
-      const deploymentData: any = {
-        name: options.projectId,
-        project: options.projectId,
-        gitSource: options.gitSource,
-        target: options.target || 'staging',
-      };
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(deploymentData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`Failed to create deployment: ${error.error?.message || response.statusText}`);
-      }
-
-      const deployment = await response.json();
-      return deployment;
-    } catch (error) {
-      console.error("Failed to deploy to Vercel:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Set environment variables
-   */
-  async setEnvironmentVariables(options: {
-    projectId: string;
-    teamId?: string;
-    environmentVariables: Array<{
-      key: string;
-      value: string;
-      target: ('production' | 'preview' | 'development')[];
-      type?: 'plain' | 'secret';
-    }>;
-  }): Promise<void> {
-    if (!this.isAuthenticated()) {
-      throw new Error("Not authenticated");
-    }
-
-    try {
-      let url = `${VERCEL_API_BASE}/v10/projects/${options.projectId}/env`;
-      if (options.teamId) {
-        url += `?teamId=${options.teamId}`;
-      }
-
-      // Create environment variables one by one
-      for (const envVar of options.environmentVariables) {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            key: envVar.key,
-            value: envVar.value,
-            target: envVar.target,
-            type: envVar.type || 'plain',
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(`Failed to set environment variable ${envVar.key}: ${error.error?.message || response.statusText}`);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to set Vercel environment variables:", error);
-      throw error;
-    }
-  }
-
-  /**
    * Get environment variables
    */
   async getEnvironmentVariables(projectId: string, teamId?: string): Promise<Array<{
@@ -560,8 +451,231 @@ export class VercelService {
   /**
    * Logout and clear access token
    */
-  logout() {
+  async logout() {
     this.accessToken = null;
+    
+    // Clear stored token
+    try {
+      if (!this.tokenStorageService) {
+        const { tokenStorageService } = await import('./tokenStorageService');
+        this.tokenStorageService = tokenStorageService;
+      }
+      await this.tokenStorageService.clearTokens('vercel');
+      console.log('✅ Vercel token cleared from storage');
+    } catch (error) {
+      console.warn('Failed to clear stored Vercel token:', error);
+    }
+  }
+
+  /**
+   * Connect a GitHub repository to Vercel and create a project
+   */
+  async connectGitHubRepo(appId: number, repoUrl: string, projectName?: string): Promise<{
+    success: boolean;
+    project?: VercelProject;
+    deploymentUrl?: string;
+    deploymentId?: string;
+    error?: string;
+  }> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const { electronAPI } = window as any;
+      const result = await electronAPI.vercel.connectGitHubRepo(appId, repoUrl, projectName, this.accessToken!);
+      
+      if (result.success && result.project) {
+        // Start tracking the initial deployment
+        const { deploymentStatusService } = await import('./deploymentStatusService');
+        
+        // Auto-sync environment variables if we can detect them
+        try {
+          const { environmentSyncService } = await import('./environmentSyncService');
+          const { resolveAppPaths } = await import('@/utils/appPathResolver');
+          const { currentApp } = (await import('@/stores/appStore')).default.getState();
+          
+          if (currentApp) {
+            const { filesPath } = await resolveAppPaths(currentApp);
+            await environmentSyncService.autoSyncForDeployment(filesPath, result.project.id);
+          }
+        } catch (envError) {
+          console.warn('Environment sync failed, continuing:', envError);
+        }
+
+        // Trigger initial deployment by making a small commit
+        try {
+          await this.triggerInitialDeployment(appId, repoUrl);
+        } catch (deployError) {
+          console.warn('Failed to trigger initial deployment, user can push manually:', deployError);
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error("Failed to connect GitHub repo to Vercel:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Deploy from Git repository
+   */
+  async deployFromGit(options: {
+    projectId: string;
+    teamId?: string;
+    gitSource: {
+      type: 'github' | 'gitlab' | 'bitbucket';
+      repo: string;
+      ref?: string;
+    };
+    target?: 'production' | 'staging';
+  }): Promise<VercelDeployment> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const { electronAPI } = window as any;
+      const response = await electronAPI.vercel.deployFromGit(options, this.accessToken!);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create deployment: ${response.data?.error?.message || response.statusText}`);
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error("Failed to deploy to Vercel:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set environment variables
+   */
+  async setEnvironmentVariables(options: {
+    projectId: string;
+    teamId?: string;
+    environmentVariables: Array<{
+      key: string;
+      value: string;
+      target: ('production' | 'preview' | 'development')[];
+      type?: 'plain' | 'secret';
+    }>;
+  }): Promise<void> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const { electronAPI } = window as any;
+      const result = await electronAPI.vercel.setEnvironmentVariables(
+        options.projectId, 
+        options.teamId, 
+        options.environmentVariables, 
+        this.accessToken!
+      );
+      
+      if (!result.success) {
+        throw new Error('Failed to set environment variables');
+      }
+    } catch (error) {
+      console.error("Failed to set Vercel environment variables:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Trigger initial deployment by making a small commit to the repository
+   */
+  private async triggerInitialDeployment(appId: number, repoUrl: string): Promise<void> {
+    try {
+      const { showInfo } = await import('@/utils/toast');
+      const { resolveAppPaths } = await import('@/utils/appPathResolver');
+      const { default: useAppStore } = await import('@/stores/appStore');
+      
+      showInfo('🔄 Triggering initial deployment...');
+      
+      const { currentApp } = useAppStore.getState();
+      if (!currentApp) {
+        throw new Error('No current app available');
+      }
+
+      const { filesPath } = await resolveAppPaths(currentApp);
+      const { fs, path } = window.electronAPI as any;
+      
+      // Check if README exists, if not create one
+      const readmePath = await path.join(filesPath, 'README.md');
+      let readmeExists = false;
+      
+      try {
+        await fs.readFile(readmePath);
+        readmeExists = true;
+      } catch {
+        // README doesn't exist, create a basic one
+        const defaultReadme = `# ${currentApp.name}
+
+This project was created with Prestige AI.
+
+## Getting Started
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+## Deployment
+
+This project is automatically deployed to Vercel when changes are pushed to the main branch.
+`;
+        await fs.writeFile(readmePath, defaultReadme);
+        showInfo('📝 Created README.md file');
+      }
+      
+      // If README exists, make a small change to trigger deployment
+      if (readmeExists) {
+        const content = await fs.readFile(readmePath);
+        const lines = content.split('\n');
+        
+        // Add deployment timestamp to end of file (or update existing one)
+        const deploymentLine = `\n<!-- Deployment triggered: ${new Date().toISOString()} -->`;
+        const existingDeploymentIndex = lines.findIndex(line => line.includes('<!-- Deployment triggered:'));
+        
+        if (existingDeploymentIndex >= 0) {
+          lines[existingDeploymentIndex] = deploymentLine.trim();
+        } else {
+          lines.push(deploymentLine.trim());
+        }
+        
+        await fs.writeFile(readmePath, lines.join('\n'));
+        showInfo('📝 Updated README.md to trigger deployment');
+      }
+      
+      // Git operations to commit and push
+      const { electronAPI } = window as any;
+      
+      // Add the README file
+      await electronAPI.git.add(filesPath, ['README.md']);
+      
+      // Commit the change
+      const commitMessage = readmeExists 
+        ? 'chore: trigger initial Vercel deployment'
+        : 'docs: add README.md and trigger initial deployment';
+        
+      await electronAPI.git.commit(filesPath, commitMessage);
+      
+      // Push to trigger deployment
+      await electronAPI.git.push(filesPath);
+      
+      showInfo('🚀 Initial deployment triggered! Check Vercel dashboard for progress.');
+      
+    } catch (error) {
+      console.error('Failed to trigger initial deployment:', error);
+      throw error;
+    }
   }
 }
 
