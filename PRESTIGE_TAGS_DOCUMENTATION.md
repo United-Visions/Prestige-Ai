@@ -52,6 +52,17 @@ export function Button({ children, onClick }) {
 ```
 **Implementation**: Parses package names and triggers npm/pnpm install
 
+#### `<prestige-setup-env>`
+**Purpose**: Setup API keys and environment variables for external services
+**Location**: `src/services/agentResponseProcessor.ts`, `src/prompts/system_prompt.ts`
+**Usage**:
+```xml
+<prestige-setup-env service="Bible API" apiKey="BIBLE_API_KEY" description="Access to Bible verses and chapters">
+This app uses the Bible API to fetch verses and chapters. Get a free API key from api.scripture.api.bible
+</prestige-setup-env>
+```
+**Implementation**: Creates/updates .env file with API key placeholders, shows user-friendly setup UI
+
 ### 3. Application Control Tags
 
 #### `<prestige-command>`
