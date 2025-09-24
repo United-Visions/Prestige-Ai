@@ -32,7 +32,7 @@ jobs:
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
         with:
           node-version: 20
-      - run: npm ci
+      - run: npm install --no-audit --no-fund --progress=false
       - name: add macos cert
         if: contains(matrix.os.name, 'macos')
         env:
@@ -42,18 +42,19 @@ jobs:
       # Windows only
       - name: Set up certificate
         if: contains(matrix.os.name, 'windows')
+        shell: pwsh
         run: |
-          echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12
-        shell: bash
+          $bytes = [Convert]::FromBase64String("${{ secrets.SM_CLIENT_CERT_FILE_B64 }}")
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\Certificate_pkcs12.p12", $bytes)
       - name: Set variables
         if: contains(matrix.os.name, 'windows')
         id: variables
+        shell: pwsh
         run: |
-          echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV" 
-          echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV" 
-          echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> "$GITHUB_ENV" 
-          echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
-        shell: bash
+          "SM_HOST=${{ secrets.SM_HOST }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SM_API_KEY=${{ secrets.SM_API_KEY }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SM_CLIENT_CERT_FILE=$env:RUNNER_TEMP\Certificate_pkcs12.p12" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Code signing with Software Trust Manager
         if: contains(matrix.os.name, 'windows')
         uses: digicert/ssm-code-signing@v1.0.0
@@ -70,4 +71,4 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-        run: npm run publish
+        run: npx electron-builder --publish always
