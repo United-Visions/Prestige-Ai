@@ -37,6 +37,7 @@ const createWindow = (): void => {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
+    // In production, the files are in the app.asar
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }
 

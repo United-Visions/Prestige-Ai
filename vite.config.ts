@@ -56,7 +56,7 @@ export default defineConfig({
     renderer(),
   ],
   optimizeDeps: {
-    exclude: ['better-sqlite3', '@opentelemetry/api'],
+    exclude: ['better-sqlite3', '@opentelemetry/api', '@opentelemetry/auto-instrumentations-node'],
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
@@ -64,12 +64,14 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: ['path', 'fs', 'os', 'crypto', 'stream', 'util', 'events'],
+      external: ['path', 'fs', 'os', 'crypto', 'stream', 'util', 'events', '@opentelemetry/api'],
     },
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Fix OpenTelemetry module resolution issues
+      '@opentelemetry/api/build/esm/internal/globalThis-utils': '@opentelemetry/api/build/esm/internal/global-utils',
     },
   },
   server: {
