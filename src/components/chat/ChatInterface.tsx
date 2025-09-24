@@ -6,7 +6,7 @@ import { CodeViewerPanel } from '@/components/code/CodeViewerPanel';
 import useAppStore from '@/stores/appStore';
 import useCodeViewerStore from '@/stores/codeViewerStore';
 import { DEFAULT_TEMPLATE_ID } from '@/templates';
-import { AppSidebar } from '../apps/AppSidebar';
+import { AppSidebar } from '@/components/apps/AppSidebar';
 import { processContinuousAgentResponse } from '@/services/continuousAgentProcessor';
 
 // Import our new branded components
