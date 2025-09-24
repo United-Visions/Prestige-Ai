@@ -1,0 +1,82 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gold gradient for crown -->
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#FFA500;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#DAA520;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Background gradient -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#581c87;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#000000;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Noise filter -->
+    <filter id="noiseFilter">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" stitchTiles="stitch"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.08 0"/>
+    </filter>
+  </defs>
+  
+  <!-- Main container background -->
+  <rect x="64" y="64" width="128" height="128" rx="24" ry="24" 
+        fill="url(#bgGradient)" 
+        stroke="#7c3aed" stroke-width="1" stroke-opacity="0.3"/>
+  
+  <!-- Noise overlay -->
+  <rect x="64" y="64" width="128" height="128" rx="24" ry="24" 
+        fill="white" opacity="0.2" filter="url(#noiseFilter)"/>
+  
+  <!-- Crown (Lucide Crown Icon) -->
+  <g transform="translate(128, 98) scale(1.3)">
+    <!-- Crown path from Lucide React Crown icon -->
+    <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm0 16h20v2H2v-2z" 
+          fill="url(#goldGradient)" 
+          stroke="#b45309" 
+          stroke-width="1.5" 
+          stroke-linejoin="round" 
+          stroke-linecap="round"
+          transform="translate(-12, -12) scale(0.75)"
+          filter="drop-shadow(0 0 4px rgba(255, 215, 0, 0.6))"/>
+    
+    <!-- Crown outline for depth -->
+    <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm0 16h20v2H2v-2z" 
+          fill="none" 
+          stroke="#d97706" 
+          stroke-width="2" 
+          stroke-linejoin="round" 
+          stroke-linecap="round"
+          transform="translate(-12, -12) scale(0.75)"/>
+    
+  </g>
+  
+  <!-- Main P letter -->
+  <text x="128" y="148" 
+        font-family="system-ui, -apple-system, sans-serif" 
+        font-size="56" 
+        font-weight="900" 
+        text-anchor="middle" 
+        fill="white">P</text>
+  
+  <!-- XML tag -->
+  <text x="72" y="80" 
+        font-family="monospace" 
+        font-size="12" 
+        font-weight="bold" 
+        fill="#4ade80">&lt;/&gt;</text>
+  
+  <!-- Animated dots -->
+  <g transform="translate(165, 176)">
+    <circle cx="0" cy="0" r="3" fill="#4ade80">
+      <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="8" cy="0" r="3" fill="#22d3ee">
+      <animate attributeName="opacity" values="1;0.5;1" dur="2s" begin="0.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="16" cy="0" r="3" fill="#a855f7">
+      <animate attributeName="opacity" values="1;0.5;1" dur="2s" begin="0.4s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>

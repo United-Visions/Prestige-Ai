@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prestige AI Logo - Export to PNG</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f3f4f6;
+        }
+        .export-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .logo-preview {
+            width: 256px;
+            height: 256px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+        }
+        .instructions {
+            max-width: 600px;
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .download-btn {
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="export-container">
+        <h1 style="color: #374151; margin-bottom: 10px;">Prestige AI Logo Exporter</h1>
+        
+        <div class="instructions">
+            <h3>Instructions to Export as PNG:</h3>
+            <ol style="text-align: left; display: inline-block;">
+                <li>Right-click on the logo below</li>
+                <li>Select "Save image as..." or "Save picture as..."</li>
+                <li>Save as "prestige-ai-logo.png"</li>
+            </ol>
+            <p><strong>Alternative:</strong> Click the download button below to automatically save the logo.</p>
+        </div>
+        
+        <button class="download-btn" onclick="downloadLogo()">📥 Download PNG</button>
+        
+        <div class="logo-preview" id="logo-container">
+            <div id="logo-root"></div>
+        </div>
+    </div>
+    
+    <script type="text/babel">
+        const { Crown } = LucideReact;
+        
+        const PrestigeLogo = () => {
+          const StaticEffect = () => (
+            React.createElement('div', {
+              className: "absolute inset-0 pointer-events-none opacity-20"
+            },
+              React.createElement('div', {
+                className: "w-full h-full",
+                style: {
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='1' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.4'/%3E%3C/svg%3E")`,
+                  backgroundSize: "20px 20px"
+                }
+              })
+            )
+          );
+
+          const GoldCrown = () => (
+            React.createElement('div', {
+              className: "absolute top-4 left-1/2 transform -translate-x-1/2"
+            },
+              React.createElement('div', { className: "relative" },
+                React.createElement(Crown, {
+                  size: 32,
+                  className: "text-yellow-300",
+                  fill: "url(#goldGradient)",
+                  style: {
+                    filter: 'drop-shadow(0 0 4px rgba(255, 215, 0, 0.6))'
+                  }
+                }),
+                React.createElement(Crown, {
+                  size: 32,
+                  className: "absolute top-0 left-0 text-yellow-600",
+                  strokeWidth: 2
+                })
+              ),
+              React.createElement('svg', { width: "0", height: "0" },
+                React.createElement('defs', null,
+                  React.createElement('linearGradient', {
+                    id: "goldGradient",
+                    x1: "0%", y1: "0%", x2: "100%", y2: "100%"
+                  },
+                    React.createElement('stop', {
+                      offset: "0%",
+                      style: { stopColor: '#FFD700', stopOpacity: 1 }
+                    }),
+                    React.createElement('stop', {
+                      offset: "50%",
+                      style: { stopColor: '#FFA500', stopOpacity: 1 }
+                    }),
+                    React.createElement('stop', {
+                      offset: "100%",
+                      style: { stopColor: '#DAA520', stopOpacity: 1 }
+                    })
+                  )
+                )
+              )
+            )
+          );
+
+          return React.createElement('div', {
+            className: "w-32 h-32 bg-gradient-to-br from-purple-950 to-black rounded-3xl flex items-center justify-center relative shadow-2xl overflow-hidden border border-purple-900/30",
+            id: "logo-element"
+          },
+            React.createElement(StaticEffect),
+            React.createElement('div', {
+              className: "text-white font-sans font-black text-7xl mt-4"
+            }, "P"),
+            React.createElement(GoldCrown),
+            React.createElement('div', {
+              className: "absolute top-2 left-2 text-green-400 font-mono text-sm font-bold"
+            }, "</>"),
+            React.createElement('div', {
+              className: "absolute bottom-3 right-3 flex space-x-1"
+            },
+              React.createElement('div', {
+                className: "w-2 h-2 bg-green-400 rounded-full animate-pulse"
+              }),
+              React.createElement('div', {
+                className: "w-2 h-2 bg-cyan-400 rounded-full animate-pulse",
+                style: { animationDelay: '0.2s' }
+              }),
+              React.createElement('div', {
+                className: "w-2 h-2 bg-purple-400 rounded-full animate-pulse",
+                style: { animationDelay: '0.4s' }
+              })
+            )
+          );
+        };
+
+        ReactDOM.render(React.createElement(PrestigeLogo), document.getElementById('logo-root'));
+    </script>
+
+    <script>
+        function downloadLogo() {
+            const logoElement = document.getElementById('logo-element');
+            
+            // Create a canvas to capture the logo
+            html2canvas(logoElement, {
+                backgroundColor: null,
+                scale: 2, // High resolution
+                width: 128,
+                height: 128
+            }).then(canvas => {
+                // Create download link
+                const link = document.createElement('a');
+                link.download = 'prestige-ai-logo.png';
+                link.href = canvas.toDataURL('image/png');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }).catch(error => {
+                console.error('Error capturing logo:', error);
+                alert('Error capturing logo. Please try right-clicking and saving the image manually.');
+            });
+        }
+    </script>
+    
+    <!-- html2canvas library for screenshot functionality -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</body>
+</html>
