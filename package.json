@@ -1,6 +1,6 @@
 {
   "name": "prestige-ai",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A simplified Claude Code CLI integration inspired by CCdyad",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
@@ -129,7 +129,7 @@
     "appId": "com.prestige-ai.app",
     "productName": "Prestige-AI",
     "directories": {
-      "output": "builds/v0.1.5"
+      "output": "builds/v0.1.6"
     },
     "files": [
       "dist/**/*",
