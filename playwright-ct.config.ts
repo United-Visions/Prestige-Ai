@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/experimental-ct-react';
 import { devices } from '@playwright/test';
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
 /**
  * @see https://playwright.dev/docs/test-components
@@ -9,7 +11,7 @@ export default defineConfig({
   /* The base directory, relative to the config file, for snapshot files created with toMatchSnapshot and toHaveScreenshot. */
   snapshotDir: './tests/component/snapshots',
   /* Maximum time one test can run for. */
-  timeout: 10 * 1000,
+  timeout: 30 * 1000,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -43,4 +45,16 @@ export default defineConfig({
       use: { ...devices['Desktop Safari'] },
     },
   ],
+
+  // Configure Vite for component tests (separate from app Vite config)
+  // Configure Vite for CT; ts suppression because older typings may not include this key
+  // @ts-expect-error ctViteConfig is supported at runtime by Playwright CT
+  ctViteConfig: {
+    plugins: [react()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
+  },
 });

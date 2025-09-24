@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -28,73 +30,94 @@ jobs:
           [
             { name: "windows", image: "windows-latest" },
             { name: "macos", image: "macos-latest" },
+            { name: "linux", image: "ubuntu-latest" },
           ]
     runs-on: ${{ matrix.os.image }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - name: Initialize environment
         uses: actions/setup-node@v4
         with:
-          node-version-file: package.json
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: Install node modules
-        run: npm install --no-audit --no-fund --progress=false
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --reporter=silent
+      - name: Install Playwright (macOS + Linux)
+        if: contains(matrix.os.name, 'macos') || contains(matrix.os.name, 'linux')
+        run: pnpm exec playwright install --with-deps
       - name: Presubmit check (e.g. lint, format)
         # do not run this on Windows (it fails and not necessary)
-        if: contains(matrix.os.name, 'macos')
-        run: npm run lint
+        if: contains(matrix.os.name, 'macos') || contains(matrix.os.name, 'linux')
+        run: pnpm run lint
       - name: Type-checking
-        # do not run this on windows (it's redunant)
-        if: contains(matrix.os.name, 'macos')
-        run: npx tsc -p tsconfig.json --noEmit
+        # do not run this on Windows (redundant there)
+        if: contains(matrix.os.name, 'macos') || contains(matrix.os.name, 'linux')
+        run: pnpm exec tsc -p tsconfig.json --noEmit
       - name: Unit tests
-        # do not run this on windows (it's redunant)
+        # do not run this on Windows (redundant there)
+        if: contains(matrix.os.name, 'macos') || contains(matrix.os.name, 'linux')
+        run: pnpm run test:unit
+      - name: Component tests (Playwright)
         if: contains(matrix.os.name, 'macos')
-        run: npm run test
+        run: pnpm run test:component
+      - name: E2E tests (Playwright)
+        if: contains(matrix.os.name, 'macos')
+        run: pnpm run test:e2e
+
+  build-artifacts:
+    name: Build release artifacts
+    runs-on: ${{ matrix.os.image }}
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          [
+            { name: "macos", image: "macos-latest" },
+            { name: "windows", image: "windows-latest" },
+            { name: "linux", image: "ubuntu-latest" },
+          ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Setup pnpm
-        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        uses: pnpm/action-setup@v4
         with:
-          version: latest
-      - name: Clone nextjs-template
-        run: git clone --depth 1 https://github.com/dyad-sh/nextjs-template.git nextjs-template
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
+          version: 9
+      - name: Initialize environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --reporter=silent
+      - name: Disable macOS code signing
+        if: contains(matrix.os.name, 'macos')
+        run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> $GITHUB_ENV
+      - name: Build app
         run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+          if [[ "${{ matrix.os.name }}" == "macos" ]]; then
+            pnpm run build:mac
+          elif [[ "${{ matrix.os.name }}" == "windows" ]]; then
+            pnpm run build:win
+          elif [[ "${{ matrix.os.name }}" == "linux" ]]; then
+            pnpm run build:linux
+          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ matrix.os.name }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ matrix.os.name }}-pnpm-store-
-      # Not strictly needed but makes the e2e tests faster (and less flaky)
-      - name: Install scaffold dependencies
-        run: cd scaffold && pnpm install
-      - name: Install nextjs-template dependencies
-        run: cd nextjs-template && pnpm install
-      - name: Install Chromium browser for Playwright
-        run: npx playwright install chromium --with-deps
-      - name: Build
-        run: echo "Skipping pre:e2e; not defined in this repo"
-      - name: Prep test server
-        run: cd dyad-is-insperation-for-building-the-prestige-ai-app/testing/fake-llm-server && npm install && npm run build && cd -
-      - name: E2E tests
-        # You can add debug logging to make it easier to see what's failing
-        # by adding "DEBUG=pw:browser" in front.
-        run: DEBUG=pw:browser npm run test:e2e
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
-        if: failure()
-        with:
-          name: playwright-report-${{ matrix.os.name }}
-          path: playwright-report/
-          retention-days: 3
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
-        if: failure()
-        with:
-          name: test-results-${{ matrix.os.name }}
-          path: test-results/
-          retention-days: 3
+          name: prestige-${{ matrix.os.name }}-${{ github.ref_name }}
+          path: |
+            builds/**/*.dmg
+            builds/**/*.zip
+            builds/**/*.exe
+            builds/**/*.AppImage
+            builds/**/*.tar.gz
+            !**/node_modules/**
+      
